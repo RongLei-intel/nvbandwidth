@@ -106,6 +106,27 @@ std::ostream &operator<<(std::ostream &o, const PeerValueMatrix<T> &matrix) {
     } else {
         o << "SUM " << matrix.key << " " << sum << std::endl;
     }
+    // Calculate coefficient of variation
+    if (count > 1) {
+        T mean = sum / count;
+        T variance = 0.0;
+
+        // Calculate variance
+        for (int currentDevice = 0; currentDevice < matrix.m_rows; currentDevice++) {
+            for (int peer = 0; peer < matrix.m_columns; peer++) {
+                std::optional<T> val = matrix.value(currentDevice, peer);
+                if (val && val.value() > 0) {
+                    variance += std::pow(val.value() - mean, 2);
+                }
+            }
+        }
+
+        if (mean > 0) {
+            T stdDev = std::sqrt(variance / count);
+            T cv = stdDev / mean;
+            o << "COEFFICIENT_OF_VARIATION " << matrix.key << " " << cv << std::endl;
+        }
+    }
 
     VERBOSE << "MIN " << matrix.key << " " << minVal << '\n';
     VERBOSE << "MAX " << matrix.key << " " << maxVal << '\n';

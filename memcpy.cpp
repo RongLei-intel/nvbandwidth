@@ -23,12 +23,12 @@
 #include "output.h"
 #include "kernels.cuh"
 #include "vector_types.h"
-#ifdef MULTINODE
-#include <mpi.h>
-#include "multinode_memcpy.h"
-#endif
 #define WARMUP_COUNT 4
 #include <cassert>
+
+#ifndef _WIN32
+#include <sys/mman.h>
+#endif
 
 MemcpyBuffer::MemcpyBuffer(size_t bufferSize): bufferSize(bufferSize), buffer(nullptr) {}
 
@@ -213,12 +213,30 @@ HostBuffer::HostBuffer(size_t bufferSize, int targetDeviceId): MemcpyBuffer(buff
     CU_ASSERT(cuDevicePrimaryCtxRetain(&targetCtx, targetDeviceId));
     CU_ASSERT(cuCtxSetCurrent(targetCtx));
 
+#if !defined(_WIN32)
+    if (useHugePages) {
+        buffer = aligned_alloc(2 * 1024 * 1024, bufferSize);
+        int err = madvise(buffer, bufferSize, MADV_HUGEPAGE);
+        ASSERT(err == 0);
+        CU_ASSERT(cuMemHostRegister(buffer, bufferSize, CU_MEMHOSTREGISTER_PORTABLE));
+        VERBOSE << "Allocated THP memory [" << buffer << ", " << (void*)((char*)buffer + bufferSize)
+                << ") size " << bufferSize << std::endl;
+    } else {
+        CU_ASSERT(cuMemHostAlloc(&buffer, bufferSize, CU_MEMHOSTALLOC_PORTABLE));
+    }
+#else
     CU_ASSERT(cuMemHostAlloc(&buffer, bufferSize, CU_MEMHOSTALLOC_PORTABLE));
+#endif
 }
 
 HostBuffer::~HostBuffer() {
     if (isMemoryOwnedByCUDA(buffer)) {
-        CU_ASSERT(cuMemFreeHost(buffer));
+        if (useHugePages) {
+            CU_ASSERT(cuMemHostUnregister(buffer));
+            free(buffer);
+        } else {
+            CU_ASSERT(cuMemFreeHost(buffer));
+        }
     } else {
         free(buffer);
     }

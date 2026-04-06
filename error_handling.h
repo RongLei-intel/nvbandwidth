@@ -18,18 +18,18 @@
 #ifndef ERROR_HANDLING_H_
 #define ERROR_HANDLING_H_
 
+#include <environment.h>
+
 void RecordError(const std::stringstream &errmsg);
 
-#ifdef MULTINODE
-#define HOST_INFO " on " << localHostname << ", rank = " << worldRank
-#else
-#define HOST_INFO ""
-#endif
+extern std::unique_ptr<Environment> env;
 
 #ifdef MULTINODE
 #include <mpi.h>
+#define HOST_INFO " on " << (env ? env->getHostname() : "unknown") << ", rank = " << worldRank
 #define MPI_ABORT MPI_Abort(MPI_COMM_WORLD, 1)
 #else
+#define HOST_INFO ""
 #define MPI_ABORT
 #endif
 

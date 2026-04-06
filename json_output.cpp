@@ -70,17 +70,17 @@ void JsonOutput::addTestcaseResults(const PeerValueMatrix<double> &matrix, const
         Json::Value row;
         for (int peer = 0; peer < matrix.m_columns; peer++) {
             std::optional <double> val = matrix.value(currentDevice, peer);
-            if (val) {
+            if (val && val.value() > 0) {
                 std::stringstream buf;
                 buf << val.value();
                 row.append(buf.str());
+                sum += val.value();
+                maxVal = std::max(maxVal, val.value());
+                minVal = std::min(minVal, val.value());
+                count++;
             } else {
                 row.append("N/A");
             }
-            sum += val.value_or(0.0);
-            maxVal = std::max(maxVal, val.value_or(0.0));
-            minVal = std::min(minVal, val.value_or(0.0));
-            if (val.value_or(0.0) > 0) count++;
         }
         testcase[NVB_BW_MATRIX].append(row);
     }
@@ -92,7 +92,7 @@ void JsonOutput::addTestcaseResults(const PeerValueMatrix<double> &matrix, const
     if (verbose) {
         testcase[NVB_BW_MIN] = minVal;
         testcase[NVB_BW_MAX] = maxVal;
-        testcase[NVB_BW_AVG] = sum/count;
+        testcase[NVB_BW_AVG] = count > 0 ? sum/count : 0;
     }
 }
 
@@ -177,7 +177,7 @@ void JsonOutput::recordDevices(int deviceCount) {
 
     for (int iDev = 0; iDev < deviceCount; iDev++) {
         std::stringstream buf;
-        buf << iDev << ": " << getDeviceDisplayInfo(iDev) << ": (" << localHostname << ")";
+        buf << iDev << ": " << getDeviceDisplayInfo(iDev) << ": (" << env->getHostname() << ")";
         deviceList.append(buf.str());
     }
     m_root[NVB_TITLE][NVB_DEVICE_LIST] = deviceList;

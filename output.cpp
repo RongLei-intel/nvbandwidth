@@ -70,9 +70,8 @@ void Output::recordError(const std::vector<std::string> &errorParts) {
 void Output::listTestcases(const std::vector<Testcase*> &testcases) {
     size_t numTestcases = testcases.size();
     OUTPUT << "Index, Name:\n\tDescription\n";
-    OUTPUT << "=======================\n";
-    for (unsigned int i = 0; i < numTestcases; i++) {
-        OUTPUT << i << ", " << testcases.at(i)->testKey() << ":\n" << testcases.at(i)->testDesc() << "\n\n";
+    for (size_t i = 0; i < numTestcases; i++) {
+        OUTPUT << i << ", " << testcases[i]->testKey() << ":\n\t" << testcases[i]->testDesc() << std::endl;
     }
 }
 
@@ -81,9 +80,10 @@ std::string getDeviceDisplayInfo(int deviceOrdinal) {
     CUdevice dev;
     char name[STRING_LENGTH];
     int busId, deviceId, domainId;
+    CUdevice device;
 
     CU_ASSERT(cuDeviceGet(&dev, deviceOrdinal));
-    CU_ASSERT(cuDeviceGetName(name, STRING_LENGTH, dev));
+    CU_ASSERT(cuDeviceGetName(name, sizeof(name), dev));
     CU_ASSERT(cuDeviceGetAttribute(&domainId, CU_DEVICE_ATTRIBUTE_PCI_DOMAIN_ID, dev));
     CU_ASSERT(cuDeviceGetAttribute(&busId, CU_DEVICE_ATTRIBUTE_PCI_BUS_ID, dev));
     CU_ASSERT(cuDeviceGetAttribute(&deviceId, CU_DEVICE_ATTRIBUTE_PCI_DEVICE_ID, dev));
@@ -104,23 +104,17 @@ std::string getDeviceDisplayInfo(int deviceOrdinal) {
 // with each process autonomously selecting a GPU to utilize. To determine this selection,
 // processes exchange their hostnames, and look for duplicates of own hostname among processes with lower value of worldRank.
 // localRank is equal to number of processes with the same hostname, but lower worldRank.
-static void printGPUsMultinode(int deviceCount) {
+static void printGPUsMultinode() {
     // Exchange hostnames
-    std::vector<char> hostnameExchange(worldSize * STRING_LENGTH);
-    MPI_Allgather(localHostname, STRING_LENGTH, MPI_BYTE, &hostnameExchange[0], STRING_LENGTH, MPI_BYTE, MPI_COMM_WORLD);
+    char hostname[STRING_LENGTH];
+    gethostname(hostname, STRING_LENGTH);
+    std::vector<char> hostnameExchange(worldSize * STRING_LENGTH, 0);
+    MPI_Allgather(hostname, STRING_LENGTH, MPI_BYTE, &hostnameExchange[0], STRING_LENGTH, MPI_BYTE, MPI_COMM_WORLD);
 
-    // Find local rank based on hostnames
-    localRank = 0;
-    for (int i = 0; i < worldRank; i++) {
-        if (strncmp(localHostname, &hostnameExchange[i * STRING_LENGTH], STRING_LENGTH) == 0) {
-            localRank++;
-        }
-    }
+    localDevice = localRank % deviceCount;
 
     std::vector<int> deviceCountExchange(worldSize);
     MPI_Allgather(&deviceCount, 1, MPI_INT, &deviceCountExchange[0], 1, MPI_INT, MPI_COMM_WORLD);
-
-    localDevice = localRank % deviceCount;
 
     // It's not recommended to run more ranks per node than GPU count, but we want to make sure we handle it gracefully
     std::map<std::string, int> gpuCounts;
@@ -134,7 +128,6 @@ static void printGPUsMultinode(int deviceCount) {
             output->recordWarning(warning.str());
         }
     }
-
     // Exchange device names
     std::string localDeviceName = getDeviceDisplayInfo(localDevice);
     ASSERT(localDeviceName.size() < STRING_LENGTH);
@@ -150,26 +143,29 @@ static void printGPUsMultinode(int deviceCount) {
     // Print gathered info
     for (int i = 0; i < worldSize; i++) {
         char *deviceName = &deviceNameExchange[i * STRING_LENGTH];
-        OUTPUT << "Process " << getPaddedProcessId(i) << " (" << &hostnameExchange[i * STRING_LENGTH] << "): device " << localDeviceIdExchange[i] << ": " << deviceName << std::endl;
+        OUTPUT << "Process " << getPaddedProcessId(i) << " (" << &hostnameExchange[i * STRING_LENGTH] << "): device "
+               << localDeviceIdExchange[i] << ": " << deviceName << std::endl;
     }
     OUTPUT << std::endl;
 }
 #endif
 
 static void printGPUs() {
-    OUTPUT << localHostname << std::endl;
+    OUTPUT << env->getHostname() << std::endl;
     for (int iDev = 0; iDev < deviceCount; iDev++) {
         OUTPUT << "Device " << iDev << ": " << getDeviceDisplayInfo(iDev) << std::endl;
     }
     OUTPUT << std::endl;
 }
 
-void Output::recordDevices(int deviceCount) {
+void Output::recordDevices(int worldSize) {
+    if (worldSize > 1) {
 #ifdef MULTINODE
-    printGPUsMultinode(deviceCount);
-#else
-    printGPUs();
+        printGPUsMultinode();
 #endif
+    } else {
+        printGPUs();
+    }
 }
 
 void Output::addTestcase(const std::string &name, const std::string &status, const std::string &msg) {

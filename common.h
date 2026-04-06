@@ -23,6 +23,7 @@
 #include <cuda.h>
 #include <nvml.h>
 #include <float.h>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <ostream>
@@ -56,14 +57,15 @@ extern bool jsonOutput;
 // Verbosity
 extern bool verbose;
 extern bool perfFormatter;
+extern bool useHugePages;
 
 #ifdef MULTINODE
 extern int localDevice;
 extern int localRank;
 extern int worldRank;
 extern int worldSize;
+extern long long targetNumPairs;
 #endif
-extern char localHostname[STRING_LENGTH];
 
 class Verbosity {
  public:
@@ -234,6 +236,22 @@ inline std::string getUnitString(UnitType unitType) {
         default:
             return "";
     }
+}
+
+inline bool hugePagesEnabled() {
+    // Huge pages not supported in Windows version
+#ifndef _WIN32
+    // Check if THP (Transparent Huge Pages) is enabled
+    std::ifstream thp_enabled("/sys/kernel/mm/transparent_hugepage/enabled");
+    if (thp_enabled.is_open()) {
+        std::string line;
+        std::getline(thp_enabled, line);
+        // THP is enabled if "always" or "madvise" is available (indicated by brackets)
+        return (line.find("[always]") != std::string::npos ||
+                line.find("[madvise]") != std::string::npos);
+    }
+#endif
+    return false;
 }
 
 // Describe attributes of a single memcpy operation

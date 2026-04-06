@@ -59,9 +59,11 @@ nvbandwidth CLI:
   -s [ --skipVerification ]      Skips data verification after copy
   -d [ --disableAffinity ]       Disable automatic CPU affinity control
   -i [ --testSamples ] arg (=3)  Iterations of the benchmark
+  -P [ --targetNumPairs ] arg (=-1) Target pairs for multinode device-to-device tests (-1: all,  >0: sampled)
   -m [ --useMean ]               Use mean instead of median for results
   -j [ --json ]                  Print output in json format instead of plain
                                  text.
+  -H [--useHugePages]            Use huge pages for host memory allocation
 ```
 To run all testcases:
 ```
@@ -106,6 +108,45 @@ Specify the IP addresses of the cluster nodes in /etc/nvidia-imex/nodes_config.c
 For example, to run multinode bandwidth on a system with 2 nodes and 4 GPUs per node run the command:
 `mpirun --allow-run-as-root --map-by ppr:4:node --bind-to core -np 8 --report-bindings -q -mca btl_tcp_if_include enP5p9s0 --hostfile /etc/nvidia-imex/nodes_config.cfg  ./nvbandwidth -p multinode`
 
+
+### Pair Sampling for Multinode Tests
+
+For large multinode systems, testing all possible GPU pairs can be time-consuming and resource-intensive. nvbandwidth provides a sampling option to reduce test time while maintaining good coverage of the GPU topology.
+
+#### Sampling Options
+
+- **`--targetNumPairs -1`** (default): Test all possible pairs (N×(N-1) for N GPUs)
+- **`--targetNumPairs <number>`**: Test exactly `<number>` pairs using intelligent sampling
+
+For example, to run multinode bandwidth on a system with 4 nodes and 8 GPUs per node, and select 8 pairs of GPUs run the command:
+`mpirun --allow-run-as-root --map-by ppr:4:node --bind-to core -np 8 --report-bindings -q -mca btl_tcp_if_include enP5p9s0 --hostfile /etc/nvidia-imex/nodes_config.cfg  ./nvbandwidth -p multinode  --targetNumPairs 8`
+
+The command selects random GPU pairs, maximizing coverage of unique GPUs. Bandwidth (BW) for untested pairs will be set to NA.
+
+#### Sampling Algorithm
+
+When using sampling (`targetNumPairs > 0` and less than total pairs), nvbandwidth employs a two-phase approach:
+
+1. **GPU Coverage Phase**: Ensures each GPU participates in at least one test pair
+2. **Random Filling Phase**: Fills remaining slots with random pairs, prioritizing uncovered GPUs
+
+This approach maximizes GPU topology coverage even with limited test pairs.
+
+#### Examples
+
+```bash
+# Test all pairs (default/full coverage)
+mpirun -n 8 ./nvbandwidth -p multinode --targetNumPairs -1
+
+# Test 20 carefully selected pairs
+mpirun -n 8 ./nvbandwidth -p multinode --targetNumPairs 20
+
+# For a 4-node, 8-GPU system: 992 total pairs available
+# Using --targetNumPairs 100 will test ~10% of pairs while covering all GPUs
+```
+
+**Note**: The `--targetNumPairs` parameter only affects multinode device-to-device tests. In single-node mode, this parameter is ignored and a warning will be displayed if a positive value is specified.
+
 ### Local testing
 
 You can test it on a single-node machine (Ampere+ GPU required):
@@ -140,6 +181,24 @@ SM copies will truncate the copy size to fit uniformly on the target device to c
 ```
 
 threadsPerBlock is set to 512.
+
+### Latency Measurements
+
+nvbandwidth uses **pointer chasing** to measure memory latency rather than simple sequential access patterns. This methodology provides more realistic latency measurements by forcing random memory access patterns that prevent prefetching optimizations.
+
+#### How Pointer Chasing Works
+
+1. **Setup**: Memory is organized as a linked list where each node contains a pointer to the next node
+2. **Pattern**: The chain follows a strided pattern through memory: `Node[i] -> Node[(i + stride) % total_nodes]`
+3. **Execution**: The kernel follows this pointer chain for a specified number of accesses
+4. **Measurement**: Total time is divided by number of accesses gives latency per access
+
+#### Important Notes
+
+- **TLB costs are excluded **: from measurements because the same buffer is accessed across all tests, keeping TLB entries cached and eliminating address translation overhead from the latency measurements.
+- **Data cache hits prevented**: Random pointer chasing patterns prevent data cache benefits by design
+
+This approach provides latency measurements that benefit from TLB optimization while maintaining random memory access patterns that prevent data cache effects.
 
 ### Measurement Details
 ![](diagrams/measurement.png)

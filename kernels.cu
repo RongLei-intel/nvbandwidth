@@ -448,14 +448,22 @@ CUresult multicastMemcmpKernel(CUstream stream, CUdeviceptr buffer, CUdeviceptr 
 
 void preloadKernels(int deviceCount) {
     cudaFuncAttributes unused;
-    for (int iDev = 0; iDev < deviceCount; iDev++) {
+#ifdef MULTINODE
+    // In multinode mode, only test the local GPU assigned to the process.
+    const int startDevice = localDevice;
+    const int endDevice = localDevice + 1;
+#else
+    // In single-node mode, preload kernels on all GPUs
+    const int startDevice = 0;
+    const int endDevice = deviceCount;
+#endif
+    for (int iDev = startDevice; iDev < endDevice; iDev++) {
         cudaSetDevice(iDev);
         cudaFuncGetAttributes(&unused, &stridingMemcpyKernel);
         cudaFuncGetAttributes(&unused, &spinKernelDevice);
         cudaFuncGetAttributes(&unused, &spinKernelDeviceMultistage);
         cudaFuncGetAttributes(&unused, &simpleCopyKernel);
         cudaFuncGetAttributes(&unused, &splitWarpCopyKernel);
-        cudaFuncGetAttributes(&unused, &multicastCopyKernel);
         cudaFuncGetAttributes(&unused, &ptrChasingKernel);
         cudaFuncGetAttributes(&unused, &multicastCopyKernel);
         cudaFuncGetAttributes(&unused, &memsetKernelDevice);
