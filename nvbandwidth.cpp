@@ -21,10 +21,7 @@
 #include <nvml.h>
 #include <iostream>
 
-#ifdef MULTINODE
-#include <mpi.h>
-#endif
-
+#include "environment.h"
 #include "json_output.h"
 #include "kernels.cuh"
 #include "output.h"
@@ -33,7 +30,6 @@
 #include "inline_common.h"
 
 namespace opt = boost::program_options;
-
 int deviceCount;
 unsigned int averageLoopCount;
 unsigned long long bufferSize;
@@ -44,25 +40,29 @@ bool disableAffinity;
 bool skipVerification;
 bool useMean;
 bool perfFormatter;
+bool useHugePages;
+long long targetNumPairs;
 
 Verbosity VERBOSE(verbose);
 Verbosity OUTPUT(shouldOutput);
 
-#ifdef MULTINODE
 // Device ordinal of the GPU owned by the process
-int localRank;
+int localDevice = 0;
+int localRank = 0;
 // Process rank within one OS
-int localDevice;
-int worldRank;
-int worldSize;
-#endif
-char localHostname[STRING_LENGTH];
+int worldRank = 0;
+int worldSize = 0;
 bool jsonOutput;
 Output *output;
 
+std::unique_ptr<Environment> env;
+
 // Define testcases here
-std::vector<Testcase*> createTestcases() {
-    return {
+std::vector<Testcase*> createNodeTestcases() {
+    std::vector<Testcase*> tests;
+    if (worldRank == 0 && localRank == 0) {
+         tests.insert(tests.end(), {
+        // Base tests that always run, by a single node/process only.
         new HostToDeviceCE(),
         new DeviceToHostCE(),
         new HostToDeviceBidirCE(),
@@ -97,25 +97,31 @@ std::vector<Testcase*> createTestcases() {
         new OneToAllReadSM(),
         new HostDeviceLatencySM(),
         new DeviceToDeviceLatencySM(),
-        new DeviceLocalCopy(),
+        new DeviceLocalCopy()
+      });
+    }
 #ifdef MULTINODE
-        new MultinodeDeviceToDeviceReadCE(),
-        new MultinodeDeviceToDeviceWriteCE(),
-        new MultinodeDeviceToDeviceBidirReadCE(),
-        new MultinodeDeviceToDeviceBidirWriteCE(),
-        new MultinodeDeviceToDeviceReadSM(),
-        new MultinodeDeviceToDeviceWriteSM(),
-        new MultinodeDeviceToDeviceBidirReadSM(),
-        new MultinodeDeviceToDeviceBidirWriteSM(),
-        new MultinodeAllToOneWriteSM(),
-        new MultinodeAllFromOneReadSM(),
-        new MultinodeBroadcastOneToAllSM(),
-        new MultinodeBroadcastAllToAllSM(),
-        new MultinodeBisectWriteCE(),
+    // Add multinode tests only if we're running in multinode mode
+    if (env->getSize() > 1) {  // More than one process means we're in multinode mode
+        tests.insert(tests.end(), {
+            new MultinodeDeviceToDeviceReadCE(),
+            new MultinodeDeviceToDeviceWriteCE(),
+            new MultinodeDeviceToDeviceBidirReadCE(),
+            new MultinodeDeviceToDeviceBidirWriteCE(),
+            new MultinodeDeviceToDeviceReadSM(),
+            new MultinodeDeviceToDeviceWriteSM(),
+            new MultinodeDeviceToDeviceBidirReadSM(),
+            new MultinodeDeviceToDeviceBidirWriteSM(),
+            new MultinodeAllToOneWriteSM(),
+            new MultinodeAllFromOneReadSM(),
+            new MultinodeBroadcastOneToAllSM(),
+            new MultinodeBroadcastAllToAllSM(),
+            new MultinodeBisectWriteCE()
+        });
+    }
 #endif
-    };
+    return tests;
 }
-
 Testcase* findTestcase(std::vector<Testcase*> &testcases, std::string id) {
     // Check if testcase ID is index
     char* p;
@@ -176,31 +182,23 @@ void runTestcase(std::vector<Testcase*> &testcases, const std::string &testcaseI
 }
 
 int main(int argc, char **argv) {
-    std::vector<Testcase*> testcases = createTestcases();
+    env = Environment::create(argc, argv);
+    env->initialize(argc, argv);
+
+#ifdef MULTINODE
+    worldSize = env->getSize();
+    worldRank = env->getRank();
+    localRank = env->getLocalRank();
+    // Avoid excessive output by limit output to rank 0
+    shouldOutput = (worldRank == 0);
+#else
+    worldSize = deviceCount;
+#endif
+
+    std::vector<Testcase*> testcases = createNodeTestcases();
     std::vector<std::string> testcasesToRun;
     std::vector<std::string> testcasePrefixes;
     output = new Output();
-
-#ifdef _WIN32
-    strncpy(localHostname, getenv("COMPUTERNAME"), STRING_LENGTH - 1);
-    const char* computername = getenv("COMPUTERNAME");
-    if (computername && computername[0] != '\0') {
-        snprintf(localHostname, STRING_LENGTH, "%s", computername);
-    } else {
-        snprintf(localHostname, STRING_LENGTH, "%s", "unknown");
-    }
-#else
-    ASSERT(0 == gethostname(localHostname, STRING_LENGTH - 1));
-#endif
-#ifdef MULTINODE
-    // Set up MPI
-    MPI_Init(NULL, NULL);
-    MPI_Comm_size(MPI_COMM_WORLD, &worldSize);
-    MPI_Comm_rank(MPI_COMM_WORLD, &worldRank);
-
-    // Avoid excessive output by limit output to rank 0
-    shouldOutput = (worldRank == 0);
-#endif
 
     // Args parsing
     opt::options_description visible_opts("nvbandwidth CLI");
@@ -214,7 +212,9 @@ int main(int argc, char **argv) {
         ("skipVerification,s", opt::bool_switch(&skipVerification)->default_value(false), "Skips data verification after copy")
         ("disableAffinity,d", opt::bool_switch(&disableAffinity)->default_value(false), "Disable automatic CPU affinity control")
         ("testSamples,i", opt::value<unsigned int>(&averageLoopCount)->default_value(defaultAverageLoopCount), "Iterations of the benchmark")
+        ("targetNumPairs,P",  opt::value<long long>(&targetNumPairs)->default_value(-1), "Target pairs for multinode device-to-device tests.")
         ("useMean,m", opt::bool_switch(&useMean)->default_value(false), "Use mean instead of median for results")
+        ("useHugePages,H",  opt::bool_switch(&useHugePages)->default_value(false), "Use huge pages for host allocations.")
         ("json,j", opt::bool_switch(&jsonOutput)->default_value(false), "Print output in json format instead of plain text.");
 
     opt::options_description all_opts("");
@@ -249,8 +249,6 @@ int main(int argc, char **argv) {
         output = new JsonOutput(shouldOutput);
     }
 
-    output->addVersionInfo();
-
     if (vm.count("help")) {
         OUTPUT << visible_opts << "\n";
         return 0;
@@ -266,25 +264,87 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // Validate targetNumPairs argument
+    if (targetNumPairs < -1) {
+        std::stringstream errmsg;
+        errmsg << "ERROR: Invalid targetNumPairs value: " << targetNumPairs
+               << ". Must be -1 (all pairs), 0 (no pairs), or a positive number.";
+        output->recordError(errmsg.str());
+        return 1;
+    }
+#ifdef MULTINODE
+    // In multinode mode, validate against maximum possible pairs
+    if (targetNumPairs > 0) {
+        long long maxPairs = static_cast<long long>(worldSize) * (worldSize - 1);
+        if (targetNumPairs > maxPairs) {
+            std::stringstream errmsg;
+            errmsg << "ERROR: targetNumPairs (" << targetNumPairs
+                   << ") exceeds maximum possible pairs (" << maxPairs
+                   << ") for worldSize " << worldSize
+                   << ". Use -1 for all pairs or specify a value <= " << maxPairs << ".";
+            output->recordError(errmsg.str());
+            return 1;
+        }
+    }
+#endif
 
     CU_ASSERT(cuInit(0));
     NVML_ASSERT(nvmlInit());
     CU_ASSERT(cuDeviceGetCount(&deviceCount));
     if (bufferSize < defaultBufferSize) {
-        output->recordWarning("NOTE: You have chosen a buffer size that is smaller than the default buffer size. It is suggested to use the default buffer size (64MB) to achieve maximal peak bandwidth.");
+        output->recordWarning("NOTE: You have chosen a buffer size that is smaller than the default buffer size. It is suggested to use the default buffer size (512MB) to achieve maximal peak bandwidth.");
     }
+#ifdef _WIN32
+    if (useHugePages) {
+        // Disable huge pages on Windows
+        output->recordWarning("NOTE: Huge pages are not supported on Windows. The option will be ignored.");
+        useHugePages = false;
+    }
+#else
+    if (useHugePages && !hugePagesEnabled()) {
+        output->recordWarning("NOTE: Huge pages were requested, but Transparent Huge Pages (THP) are not enabled on this system. The option will be ignored. Enable THP with 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' if you wish to use this feature.");
+    }
+#endif
 
     int cudaVersion;
-    cudaRuntimeGetVersion(&cudaVersion);
-
+    CUDA_ASSERT(cudaRuntimeGetVersion(&cudaVersion));
     CU_ASSERT(cuDriverGetVersion(&cudaVersion));
 
     char driverVersion[NVML_SYSTEM_DRIVER_VERSION_BUFFER_SIZE];
     NVML_ASSERT(nvmlSystemGetDriverVersion(driverVersion, NVML_SYSTEM_DRIVER_VERSION_BUFFER_SIZE));
 
+    output->addVersionInfo();
     output->addCudaAndDriverInfo(cudaVersion, driverVersion);
+    // Print GPU information
+    output->recordDevices(worldSize);
 
-    output->recordDevices(deviceCount);
+    // Early CUDA runtime sanity check - test if we can create contexts and allocate memory
+    // This catches driver/runtime issues before they manifest as confusing errors later
+#ifdef MULTINODE
+    // In multinode mode, only test the local GPU assigned to the process.
+    const int testDeviceStart = localDevice;
+    const int testDeviceEnd = localDevice + 1;
+#else
+    // In single-node mode, test all GPUs
+    const int testDeviceStart = 0;
+    const int testDeviceEnd = deviceCount;
+#endif
+    for (int i = testDeviceStart; i < testDeviceEnd; i++) {
+        cudaError_t err = cudaSetDevice(i);
+        if (err != cudaSuccess) {
+            output->recordError("CUDA runtime sanity check failed: cudaSetDevice(" + std::to_string(i) + ") returned " + std::string(cudaGetErrorString(err)));
+            return 1;
+        }
+
+        // Test basic memory allocation to verify that context creation works
+        void* testPtr = nullptr;
+        err = cudaMalloc(&testPtr, 1024);
+        if (err != cudaSuccess) {
+            output->recordError("CUDA runtime sanity check failed: cudaMalloc on device " + std::to_string(i) + " returned " + std::string(cudaGetErrorString(err)));
+            return 1;
+        }
+        cudaFree(testPtr);
+    }
 
     if (testcasePrefixes.size() > 0) {
         testcasesToRun = expandTestcases(testcases, testcasePrefixes);
@@ -316,10 +376,7 @@ int main(int argc, char **argv) {
         delete testcase;
     }
 
-#ifdef MULTINODE
-    MPI_Finalize();
-#endif
-
+    env->finalize();
     output->printInfo();
     return 0;
 }

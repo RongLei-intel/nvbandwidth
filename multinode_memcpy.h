@@ -17,13 +17,14 @@
 
 #ifndef MULTINODE_MEMCPY_H_
 #define MULTINODE_MEMCPY_H_
-#ifdef MULTINODE
 
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
 #include "common.h"
 #include "memcpy.h"
+
+std::vector<std::pair<int, int>> generateTestPairs(int worldSize, long long targetNumPairs = -1);
 
 class MultinodeMemoryAllocation {
  protected:
@@ -144,5 +145,4 @@ class NodeHelperMulti : public NodeHelper {
     void streamBlockerBlock(CUstream stream);
 };
 
-#endif  // MULTINODE
 #endif  // MULTINODE_MEMCPY_H_

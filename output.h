@@ -91,7 +91,7 @@ class Output {
 
     virtual void printInfo();
 
-    virtual void recordDevices(int deviceCount);
+    virtual void recordDevices(int worldSize);
 
     void listTestcases(const std::vector<Testcase*> &testcases);
 };

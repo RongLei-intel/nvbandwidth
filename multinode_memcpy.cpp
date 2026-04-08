@@ -16,7 +16,10 @@
  */
 
 #ifdef MULTINODE
+#include <algorithm>
 #include <mpi.h>
+#include <set>
+#include <random>
 #include <unistd.h>
 
 #include "kernels.cuh"
@@ -208,6 +211,164 @@ MultinodeDeviceBufferLocal::~MultinodeDeviceBufferLocal() {
         CU_ASSERT(cuMemFree((CUdeviceptr)buffer));
         CU_ASSERT(cuDevicePrimaryCtxRelease(localDevice));
     }
+}
+
+// Helper function to generate test pairs using NodeHelperMulti sampling with
+// target number of pairs
+std::vector<std::pair<int, int>>
+generateTestPairs(int worldSize, long long targetNumPairs) {
+    // Members are static, we only need to do the pair-wise sampling once.
+    static std::vector<std::pair<int, int>> allValidPairs;  // All possible (src ≠ dst) GPU pairs
+    static std::vector<std::pair<int, int>> selectedPairs;  // Subset of pairs chosen via sampling
+    static bool pairsCalculated = false;  // Ensure the chosen pairs are computed once per run
+
+    // Handle special cases
+    if (targetNumPairs == 0) {
+        return {};
+    }
+    if (targetNumPairs == -1) {
+        targetNumPairs = ((worldSize) * (worldSize - 1));
+    }
+
+    bool useDecisionSampling = targetNumPairs < ((worldSize) * (worldSize - 1));
+
+    // If pairs were already calculated and we're not doing decision sampling, return all pairs
+    if (pairsCalculated && !useDecisionSampling) {
+        return allValidPairs;
+    }
+
+    // If pairs were already calculated and we are doing decision sampling, return selected pairs.
+    // Currently, we only need to calculate the pairs once for all tests.
+    if (pairsCalculated && useDecisionSampling && !selectedPairs.empty()) {
+        return selectedPairs;
+    }
+
+    if (worldRank == 0) {
+        std::vector<bool> gpuIncluded(worldSize, false);
+
+        if (!pairsCalculated) {
+            // Generate all valid pairs
+            for (int srcDeviceId = 0; srcDeviceId < worldSize; srcDeviceId++) {
+                for (int peerDeviceId = 0; peerDeviceId < worldSize; peerDeviceId++) {
+                    if (peerDeviceId == srcDeviceId) {
+                        continue;
+                    }
+                    allValidPairs.push_back({srcDeviceId, peerDeviceId});
+                }
+            }
+
+            // Use fixed seed for reproducible results
+            std::mt19937 gen(0xBAADF00D);
+            std::shuffle(allValidPairs.begin(), allValidPairs.end(), gen);
+
+            if (useDecisionSampling) {
+                selectedPairs.clear();
+                std::set<std::pair<int, int>> selectedPairsSet;
+
+                std::vector<int> gpuOrder;
+                for (int i = 0; i < worldSize; i++) {
+                    gpuOrder.push_back(i);
+                }
+                std::shuffle(gpuOrder.begin(), gpuOrder.end(), gen);
+
+                // First pass: try to include each GPU at least once
+                for (int gpu : gpuOrder) {
+                    if (selectedPairsSet.size() >= static_cast<size_t>(targetNumPairs)) {
+                        break;
+                    }
+                    if (gpuIncluded[gpu]) {
+                        continue;
+                    }
+                    // Find a pair that includes this GPU
+                    for (const auto &pair : allValidPairs) {
+                        if ((pair.first == gpu || pair.second == gpu) &&
+                            selectedPairsSet.size() < static_cast<size_t>(targetNumPairs)) {
+                            if (selectedPairsSet.find(pair) == selectedPairsSet.end()) {
+                                selectedPairsSet.insert(pair);
+                                selectedPairs.push_back(pair);
+                                gpuIncluded[pair.first] = true;
+                                gpuIncluded[pair.second] = true;
+                                break;  // Found one pair for this GPU, move to next
+                            }
+                        }
+                    }
+                }
+
+                // Second pass: fill remaining slots with random pairs
+                if (selectedPairsSet.size() < static_cast<size_t>(targetNumPairs)) {
+                    // Create a list of remaining pairs (excluding already selected ones)
+                    std::vector<std::pair<int, int>> remainingPairs;
+                    for (const auto &pair : allValidPairs) {
+                        if (selectedPairsSet.find(pair) == selectedPairsSet.end()) {
+                            remainingPairs.push_back(pair);
+                        }
+                    }
+
+                    // Shuffle remaining pairs and add them
+                    if (!remainingPairs.empty()) {
+                        std::shuffle(remainingPairs.begin(), remainingPairs.end(), gen);
+
+                        int remainingSlots = targetNumPairs - selectedPairsSet.size();
+                        int pairsToAdd = std::min(
+                            remainingSlots,
+                            static_cast<int>(remainingPairs.size()));
+
+                        for (int i = 0; i < pairsToAdd; i++) {
+                            selectedPairsSet.insert(remainingPairs[i]);
+                            selectedPairs.push_back(remainingPairs[i]);
+                        }
+                    }
+                }
+            }
+            pairsCalculated = true;
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    pairsCalculated = true;
+
+    std::vector<std::pair<int, int>> finalPairs;
+    if (worldRank == 0) {
+        if (useDecisionSampling) {
+            finalPairs = selectedPairs;
+        } else {
+            finalPairs = allValidPairs;
+        }
+    }
+
+    // Broadcast the size first
+    long pair_vector_size = finalPairs.size();
+    MPI_Bcast(&pair_vector_size, 1, MPI_LONG, 0, MPI_COMM_WORLD);
+
+    // Serialize pairs to flat integer array for safe MPI communication
+    std::vector<int> serializedPairs;
+    if (worldRank == 0) {
+        serializedPairs.reserve(finalPairs.size() * 2);
+        for (const auto& pair : finalPairs) {
+            serializedPairs.push_back(pair.first);
+            serializedPairs.push_back(pair.second);
+        }
+    } else {
+        serializedPairs.resize(pair_vector_size * 2);
+        finalPairs.resize(pair_vector_size);
+    }
+
+    // Broadcast the serialized data
+    MPI_Bcast(serializedPairs.data(), serializedPairs.size(), MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Deserialize back to pairs on non-rank-0 processes
+    if (worldRank != 0) {
+        for (size_t i = 0; i < finalPairs.size(); ++i) {
+            finalPairs[i] = {serializedPairs[i * 2], serializedPairs[i * 2 + 1]};
+        }
+        if (useDecisionSampling) {
+            selectedPairs = finalPairs;
+        } else {
+            allValidPairs = finalPairs;
+        }
+    }
+
+    return finalPairs;
 }
 
 NodeHelperMulti::NodeHelperMulti() : blockingVarDeviceAllocation(sizeof(*blockingVarDevice), 0)  {

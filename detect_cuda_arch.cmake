@@ -5,7 +5,7 @@ include_guard(GLOBAL)
 
 # Adapted from https://github.com/rapidsai/rapids-cmake/blob/branch-24.04/rapids-cmake/cuda/detail/detect_architectures.cmake
 
-function(cuda_detect_architectures possible_archs_var gpu_archs)
+function(cuda_detect_architectures_from_gpu possible_archs_var gpu_archs)
 
   set(__gpu_archs ${${possible_archs_var}})
 
@@ -64,4 +64,28 @@ int main(int argc, char** argv) {
   file(REMOVE "${eval_file}" "${eval_exe}" "${error_file}")
   set(${gpu_archs} ${__gpu_archs} PARENT_SCOPE)
 
+endfunction()
+
+# Function to detect CUDA architecture without requiring a GPU
+function(cuda_detect_architectures_from_nvcc output_variable)
+    execute_process(
+        COMMAND ${CMAKE_CUDA_COMPILER} --version
+        OUTPUT_VARIABLE NVCC_OUT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    string(REGEX MATCH "release ([0-9]+)\\.([0-9]+)" NVCC_VERSION "${NVCC_OUT}")
+    set(NVCC_MAJOR ${CMAKE_MATCH_1})
+    set(NVCC_MINOR ${CMAKE_MATCH_2})
+
+    # Base architecture list (Turing and newer)
+    set(ARCH_LIST "75;80;86;89;90;100")
+
+    # Add older architectures only for CUDA < 13.0
+    if(NVCC_MAJOR LESS 13)
+        list(PREPEND ARCH_LIST "52;60;70")  # Maxwell, Pascal, Volta
+        message(STATUS "Including SM52/SM60/SM70 support for CUDA ${NVCC_MAJOR}.${NVCC_MINOR}")
+    endif()
+
+    set(${output_variable} "${ARCH_LIST}" PARENT_SCOPE)
+    message(STATUS "Final architecture list: ${ARCH_LIST}")
 endfunction()

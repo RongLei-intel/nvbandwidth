@@ -1,25 +1,42 @@
 cmake_minimum_required(VERSION 3.20)
 
+# Check if user had set the target CUDA_ARCHITECTURE
+if(DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CUDA_ARCH_DEFINED_BY_USER TRUE)
+    message(STATUS "CMAKE_CUDA_ARCHITECTURES set by user: ${CMAKE_CUDA_ARCHITECTURES}")
+endif()
+
 project(nvbandwidth
     LANGUAGES CUDA CXX)
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
+# Unless it's set by the user, ignore CMAKE_CUDA_ARCHITECTURES
+if(NOT CUDA_ARCH_DEFINED_BY_USER)
+    unset(CMAKE_CUDA_ARCHITECTURES)
+    unset(CMAKE_CUDA_ARCHITECTURES CACHE)
+endif()
+
 if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL "13.0")
     # 5.2 architecture not supported since CUDA 13.0
-    set(supported_archs "70" "75" "80" "86" "89" "90" "100")
+    set(supported_archs "75" "80" "86" "89" "90" "100")
 else ()
     set(supported_archs "52" "70" "75" "80" "86" "89" "90" "100")
 endif()
 
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    message(STATUS "Detecting underlying CUDA Arch to set CMAKE_CUDA_ARCHITECTURES")
+    message(STATUS "Detecting underlying CUDA Arch from GPU to set CMAKE_CUDA_ARCHITECTURES")
     include(detect_cuda_arch.cmake)
     # Set CMAKE_CUDA_ARCHITECURES based on the underlying device
-    cuda_detect_architectures(supported_archs CMAKE_CUDA_ARCHITECTURES)
+    cuda_detect_architectures_from_gpu(supported_archs CMAKE_CUDA_ARCHITECTURES)
+endif()
+
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  message(STATUS "Detecting underlying CUDA Arch from nvcc to set CMAKE_CUDA_ARCHITECTURES")
+  # Set CMAKE_CUDA_ARCHITECURES based on the underlying device
+  cuda_detect_architectures_from_nvcc(supported_archs CMAKE_CUDA_ARCHITECTURES)
 endif()
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -29,7 +46,7 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     file(READ "/etc/os-release" OS_RELEASE_CONTENT)
     # Skip static libs on Fedora - https://github.com/NVIDIA/nvbandwidth/issues/4
-    if(NOT OS_RELEASE_CONTENT MATCHES "ID=.*fedora")
+    if(NOT OS_RELEASE_CONTENT MATCHES "ID=.*fedora|azurelinux")
         set(Boost_USE_STATIC_LIBS ON)
     endif()
 else()
@@ -38,6 +55,7 @@ endif()
 find_package(Boost COMPONENTS program_options REQUIRED)
 
 set(src
+    environment.cpp
     testcase.cpp
     testcases_ce.cpp
     testcases_sm.cpp
