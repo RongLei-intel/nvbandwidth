@@ -52,6 +52,8 @@ You may need to set the BOOST_ROOT environment variable on Windows to tell CMake
 nvbandwidth CLI:
   -h [ --help ]                  Produce help message
   -b [ --bufferSize ] arg (=512) Memcpy buffer size in MiB
+  --latencyBufferSize arg (=2)   Latency testcase buffer size in MiB
+  --latencyStrideLen arg (=16)   Latency pointer-chase stride in LatencyNode entries
   -l [ --list ]                  List available testcases
   -t [ --testcase ] arg          Testcase(s) to run (by name or index)
   -p [ --testcasePrefixes ] arg  Testcase(s) to run (by prefix))
@@ -59,11 +61,16 @@ nvbandwidth CLI:
   -s [ --skipVerification ]      Skips data verification after copy
   -d [ --disableAffinity ]       Disable automatic CPU affinity control
   -i [ --testSamples ] arg (=3)  Iterations of the benchmark
+  -L [ --loopCount ] arg (=16)   Memcpy loop count within each test sample
+  -w [ --warmupCount ] arg (=4)  Memcpy warmup loop count before each test
+                                 sample (0 disables warmup)
   -P [ --targetNumPairs ] arg (=-1) Target pairs for multinode device-to-device tests (-1: all,  >0: sampled)
   -m [ --useMean ]               Use mean instead of median for results
   -j [ --json ]                  Print output in json format instead of plain
                                  text.
   -H [--useHugePages]            Use huge pages for host memory allocation
+  --flushHostCache               Flush the host_device_latency_sm host buffer
+                                 from CPU cache after pointer-chain initialization
 ```
 To run all testcases:
 ```
@@ -89,7 +96,11 @@ memcpy CE GPU(row) <- GPU(column) bandwidth (GB/s)
 7    276.12    276.45    276.12    276.36    276.00    276.57    276.45      0.00
 ```
 
-Set number of iterations and the buffer size for copies with --testSamples and --bufferSize
+Set the number of benchmark samples and the buffer size for copies with --testSamples and --bufferSize.
+Set the buffer size for latency pointer-chase tests with --latencyBufferSize.
+Set the pointer-chase stride for latency tests with --latencyStrideLen.
+Use --flushHostCache with host_device_latency_sm to evict the initialized host pointer-chase buffer from CPU cache before the GPU starts measuring latency.
+Set the number of measured memcpy loops per sample with --loopCount, and the number of warmup loops before each sample with --warmupCount.
 
 ## Multinode benchmarks
 
@@ -186,6 +197,8 @@ threadsPerBlock is set to 512.
 
 nvbandwidth uses **pointer chasing** to measure memory latency rather than simple sequential access patterns. This methodology provides more realistic latency measurements by forcing random memory access patterns that prevent prefetching optimizations.
 
+Latency tests use a 2 MiB pointer-chase buffer and a stride of 16 `LatencyNode` entries by default. Use `--latencyBufferSize <MiB>` to increase the buffer size, for example `--latencyBufferSize 512` for a 512 MiB latency buffer. Use `--latencyStrideLen <entries>` to change the pointer-chase stride, for example `--latencyStrideLen 64`. For host-device latency (`host_device_latency_sm`), use `--flushHostCache` to flush the initialized host buffer from CPU cache before measurement.
+
 #### How Pointer Chasing Works
 
 1. **Setup**: Memory is organized as a linked list where each node contains a pointer to the next node
@@ -209,7 +222,7 @@ First, we enqueue a spin kernel that spins on a flag in host memory. The spin ke
 
 This process is repeated 3 times, and the median bandwidth for each trial is reported.
 
-Number of repetitions can be overriden using the --testSamples option, and in order to use arithmetic mean instead of median you can specify --useMean option.
+Number of repetitions can be overriden using the --testSamples option, the measured memcpy loop count can be overridden using --loopCount, and the warmup loop count can be overridden using --warmupCount. In order to use arithmetic mean instead of median you can specify --useMean option.
 
 ### Unidirectional Bandwidth Tests
 ```

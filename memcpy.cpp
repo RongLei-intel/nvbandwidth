@@ -23,11 +23,15 @@
 #include "output.h"
 #include "kernels.cuh"
 #include "vector_types.h"
-#define WARMUP_COUNT 4
 #include <cassert>
+
+#if defined(__x86_64__) || defined(__i386__)
+#include <emmintrin.h>
+#endif
 
 #ifndef _WIN32
 #include <sys/mman.h>
+#include <unistd.h>
 #endif
 
 MemcpyBuffer::MemcpyBuffer(size_t bufferSize): bufferSize(bufferSize), buffer(nullptr) {}
@@ -242,6 +246,27 @@ HostBuffer::~HostBuffer() {
     }
 }
 
+void HostBuffer::flushFromCpuCache() const {
+#if defined(__x86_64__) || defined(__i386__)
+    size_t cacheLineSize = 64;
+#ifndef _WIN32
+    long sysconfCacheLineSize = sysconf(_SC_LEVEL1_DCACHE_LINESIZE);
+    if (sysconfCacheLineSize > 0) {
+        cacheLineSize = static_cast<size_t>(sysconfCacheLineSize);
+    }
+#endif
+
+    uintptr_t start = reinterpret_cast<uintptr_t>(buffer);
+    uintptr_t end = start + bufferSize;
+    uintptr_t alignedStart = start & ~(cacheLineSize - 1);
+
+    for (uintptr_t addr = alignedStart; addr < end; addr += cacheLineSize) {
+        _mm_clflush(reinterpret_cast<const void*>(addr));
+    }
+    _mm_mfence();
+#endif
+}
+
 // Host nodes don't have a context, return null
 CUcontext HostBuffer::getPrimaryCtx() const {
     return nullptr;
@@ -446,9 +471,11 @@ std::vector<double> MemcpyOperation::doMemcpyCore(MemcpyDispatchInfo &info) {
 
             nodeHelper->streamBlockerBlock(info.streams[i]);
 
-            // warmup
-            MemcpyDescriptor desc(info.dstBuffers[i]->getBuffer(), info.srcBuffers[i]->getBuffer(), info.streams[i], info.srcBuffers[i]->getBufferSize(), WARMUP_COUNT);
-            memcpyInitiator->memcpyFunc(desc);
+            if (warmupCount > 0) {
+                // warmup
+                MemcpyDescriptor desc(info.dstBuffers[i]->getBuffer(), info.srcBuffers[i]->getBuffer(), info.streams[i], info.srcBuffers[i]->getBufferSize(), warmupCount);
+                memcpyInitiator->memcpyFunc(desc);
+            }
         }
 
         if (info.srcBuffers.size() > 0) {
@@ -608,7 +635,17 @@ size_t MemcpyInitiatorSMSplitWarp::memcpyFunc(MemcpyDescriptor &desc) {
     return copyKernelSplitWarp(desc);
 }
 
-MemPtrChaseOperation::MemPtrChaseOperation(unsigned long long loopCount) : loopCount(loopCount) {
+size_t MemcpyInitiatorSMHostRead::memcpyFunc(MemcpyDescriptor &desc) {
+    return hostReadKernel(desc);
+}
+
+void MemcpyInitiatorSMHostRead::memcmpPattern(MemcpyDispatchInfo &info) const {
+    // This initiator intentionally measures read bandwidth from the source only.
+    // The destination is just a per-thread sink used to keep the loads live, so
+    // there is no full-buffer copy result to verify.
+}
+
+MemPtrChaseOperation::MemPtrChaseOperation(unsigned long long latencyMemAccessCnt) : latencyMemAccessCnt(latencyMemAccessCnt) {
     cudaDeviceProp prop;
     CUDA_ASSERT(cudaGetDeviceProperties(&prop, 0));
     smCount = prop.multiProcessorCount;

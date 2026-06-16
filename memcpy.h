@@ -46,6 +46,7 @@ class HostBuffer : public MemcpyBuffer {
     // NUMA affinity is set here through allocation of memory in the socket group where `targetDeviceId` resides
     HostBuffer(size_t bufferSize, int targetDeviceId);
     ~HostBuffer();
+   void flushFromCpuCache() const;
 
     int getBufferIdx() const override;
     CUcontext getPrimaryCtx() const override;
@@ -196,6 +197,14 @@ class MemcpyInitiatorSMSplitWarp : public MemcpyInitiatorSM {
     unsigned long long getAdjustedBandwidth(unsigned long long bandwidth);
 };
 
+class MemcpyInitiatorSMHostRead : public MemcpyInitiatorSM {
+ public:
+   size_t memcpyFunc(MemcpyDescriptor &memcpyDescriptor);
+   // Host-read bandwidth is measured by consuming source data into a small sink;
+   // the destination buffer is not expected to contain a copy of the source.
+   void memcmpPattern(MemcpyDispatchInfo &info) const;
+};
+
 // Abstraction of a memory Operation.
 class MemoryOperation {
  public:
@@ -241,11 +250,11 @@ class MemcpyOperation : public MemoryOperation {
 
 class MemPtrChaseOperation : public MemoryOperation {
  public:
-    MemPtrChaseOperation(unsigned long long loopCount);
+    MemPtrChaseOperation(unsigned long long latencyMemAccessCnt);
     ~MemPtrChaseOperation() = default;
     double doPtrChase(const int srcId, const MemcpyBuffer &peerBuffer);
  private:
-    unsigned long long loopCount;
+    unsigned long long latencyMemAccessCnt;
     unsigned int smCount;
 };
 

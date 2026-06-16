@@ -268,8 +268,21 @@ class HostDeviceLatencySM: public Testcase {
  public:
     HostDeviceLatencySM() : Testcase("host_device_latency_sm",
             "\tHost - device access latency using a pointer chase kernel\n"
-            "\tA 2MB buffer is allocated on the host and is accessed by the GPU") {}
+            "\tA configurable buffer is allocated on the host and is accessed by the GPU\n"
+            "\tUse --latencyBufferSize to set the buffer size in MiB and --latencyStrideLen to set the pointer-chase stride") {}
     virtual ~HostDeviceLatencySM() {}
+    void run(unsigned long long size, unsigned long long loopCount);
+};
+
+// Host to device SM read bandwidth using many concurrent host-memory reads
+class HostDeviceBandwidthSM: public Testcase {
+ public:
+    HostDeviceBandwidthSM() : Testcase("host_device_bandwidth_sm",
+            "\tHost - device read bandwidth using a copy-kernel-style SM kernel\n"
+            "\tA pinned host buffer is allocated with NUMA affinity and the GPU issues many parallel reads\n"
+            "\tUse --hostReadParallelism to control the number of independent host reads issued per thread\n"
+            "\tOnly host-buffer read traffic is counted for bandwidth; a device buffer is used as a small sink") {}
+    virtual ~HostDeviceBandwidthSM() {}
     void run(unsigned long long size, unsigned long long loopCount);
 };
 
@@ -307,8 +320,8 @@ class DeviceToDeviceLatencySM: public Testcase {
  public:
     DeviceToDeviceLatencySM() : Testcase("device_to_device_latency_sm",
             "\tMeasures latency of a pointer derefernce operation between each pair of accessible peers.\n"
-            "\tA 2MB buffer is allocated on a GPU and is accessed by the peer GPU to determine latency.\n"
-            "\t--bufferSize flag is ignored") {}
+            "\tA configurable buffer is allocated on a GPU and is accessed by the peer GPU to determine latency.\n"
+            "\tUse --latencyBufferSize to set the buffer size in MiB and --latencyStrideLen to set the pointer-chase stride; --bufferSize is ignored") {}
     virtual ~DeviceToDeviceLatencySM() {}
     void run(unsigned long long size, unsigned long long loopCount);
     bool filter() { return Testcase::filterHasAccessiblePeerPairs(); }

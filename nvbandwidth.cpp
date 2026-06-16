@@ -32,8 +32,12 @@
 namespace opt = boost::program_options;
 int deviceCount;
 unsigned int averageLoopCount;
+unsigned int latencyStrideLen;
+unsigned int hostReadParallelism;
 unsigned long long bufferSize;
+unsigned long long latencyBufferSize;
 unsigned long long loopCount;
+unsigned long long warmupCount;
 bool verbose;
 bool shouldOutput = true;
 bool disableAffinity;
@@ -41,6 +45,7 @@ bool skipVerification;
 bool useMean;
 bool perfFormatter;
 bool useHugePages;
+bool flushHostCache;
 long long targetNumPairs;
 
 Verbosity VERBOSE(verbose);
@@ -96,6 +101,7 @@ std::vector<Testcase*> createNodeTestcases() {
         new OneToAllWriteSM(),
         new OneToAllReadSM(),
         new HostDeviceLatencySM(),
+        new HostDeviceBandwidthSM(),
         new DeviceToDeviceLatencySM(),
         new DeviceLocalCopy()
       });
@@ -171,8 +177,7 @@ void runTestcase(std::vector<Testcase*> &testcases, const std::string &testcaseI
 
         // Run the testcase
         if (test->testKey() == "host_device_latency_sm" || test->testKey() == "device_to_device_latency_sm") {
-            // use fixd-size buffer for latency tests
-            test->run(2 * _MiB, loopCount);
+            test->run(latencyBufferSize * _MiB, loopCount);
         } else {
             test->run(bufferSize * _MiB, loopCount);
         }
@@ -205,6 +210,9 @@ int main(int argc, char **argv) {
     visible_opts.add_options()
         ("help,h", "Produce help message")
         ("bufferSize,b", opt::value<unsigned long long int>(&bufferSize)->default_value(defaultBufferSize), "Memcpy buffer size in MiB")
+        ("latencyBufferSize", opt::value<unsigned long long int>(&latencyBufferSize)->default_value(defaultLatencyBufferSize), "Latency testcase buffer size in MiB")
+        ("latencyStrideLen", opt::value<unsigned int>(&latencyStrideLen)->default_value(defaultLatencyStrideLen), "Latency pointer-chase stride in LatencyNode entries")
+        ("hostReadParallelism", opt::value<unsigned int>(&hostReadParallelism)->default_value(defaultHostReadParallelism), "Number of independent host-buffer reads issued per GPU thread in host_device_bandwidth_sm. Supported values: 1, 2, 4, 8, 16, 32")
         ("list,l", "List available testcases")
         ("testcase,t", opt::value<std::vector<std::string>>(&testcasesToRun)->multitoken(), "Testcase(s) to run (by name or index)")
         ("testcasePrefixes,p", opt::value<std::vector<std::string>>(&testcasePrefixes)->multitoken(), "Testcase(s) to run (by prefix))")
@@ -212,15 +220,17 @@ int main(int argc, char **argv) {
         ("skipVerification,s", opt::bool_switch(&skipVerification)->default_value(false), "Skips data verification after copy")
         ("disableAffinity,d", opt::bool_switch(&disableAffinity)->default_value(false), "Disable automatic CPU affinity control")
         ("testSamples,i", opt::value<unsigned int>(&averageLoopCount)->default_value(defaultAverageLoopCount), "Iterations of the benchmark")
+        ("loopCount,L", opt::value<unsigned long long int>(&loopCount)->default_value(defaultLoopCount), "Memcpy loop count within each test sample")
+        ("warmupCount,w", opt::value<unsigned long long int>(&warmupCount)->default_value(defaultWarmupCount), "Memcpy warmup loop count before each test sample (0 disables warmup)")
         ("targetNumPairs,P",  opt::value<long long>(&targetNumPairs)->default_value(-1), "Target pairs for multinode device-to-device tests.")
         ("useMean,m", opt::bool_switch(&useMean)->default_value(false), "Use mean instead of median for results")
         ("useHugePages,H",  opt::bool_switch(&useHugePages)->default_value(false), "Use huge pages for host allocations.")
+        ("flushHostCache", opt::bool_switch(&flushHostCache)->default_value(false), "Flush the host_device_latency_sm host buffer from CPU cache after pointer-chain initialization.")
         ("json,j", opt::bool_switch(&jsonOutput)->default_value(false), "Print output in json format instead of plain text.");
 
     opt::options_description all_opts("");
     all_opts.add(visible_opts);
     all_opts.add_options()
-        ("loopCount", opt::value<unsigned long long int>(&loopCount)->default_value(defaultLoopCount), "Iterations of memcpy to be performed within a test sample")
         ("perfFormatter", opt::bool_switch(&perfFormatter)->default_value(false), "Use perf formatter prefix (&&&& PERF) in output");
 
     opt::variables_map vm;
@@ -269,6 +279,41 @@ int main(int argc, char **argv) {
         std::stringstream errmsg;
         errmsg << "ERROR: Invalid targetNumPairs value: " << targetNumPairs
                << ". Must be -1 (all pairs), 0 (no pairs), or a positive number.";
+        output->recordError(errmsg.str());
+        return 1;
+    }
+
+    if (loopCount == 0) {
+        output->recordError("ERROR: Invalid loopCount value: 0. Must be a positive integer.");
+        return 1;
+    }
+    if (latencyBufferSize == 0) {
+        output->recordError("ERROR: Invalid latencyBufferSize value: 0. Must be a positive integer.");
+        return 1;
+    }
+    if (latencyBufferSize > ULLONG_MAX / _MiB) {
+        output->recordError("ERROR: Invalid latencyBufferSize value. The requested latency buffer size is too large.");
+        return 1;
+    }
+    if (latencyStrideLen == 0) {
+        output->recordError("ERROR: Invalid latencyStrideLen value: 0. Must be a positive integer.");
+        return 1;
+    }
+    if (!(hostReadParallelism == 1 || hostReadParallelism == 2 || hostReadParallelism == 4 || hostReadParallelism == 8 || hostReadParallelism == 16 || hostReadParallelism == 32)) {
+        output->recordError("ERROR: Invalid hostReadParallelism value. Supported values are 1, 2, 4, 8, 16, and 32.");
+        return 1;
+    }
+    if (loopCount > UINT_MAX) {
+        std::stringstream errmsg;
+        errmsg << "ERROR: Invalid loopCount value: " << loopCount
+               << ". Must be <= " << UINT_MAX << ".";
+        output->recordError(errmsg.str());
+        return 1;
+    }
+    if (warmupCount > UINT_MAX) {
+        std::stringstream errmsg;
+        errmsg << "ERROR: Invalid warmupCount value: " << warmupCount
+               << ". Must be <= " << UINT_MAX << ".";
         output->recordError(errmsg.str());
         return 1;
     }

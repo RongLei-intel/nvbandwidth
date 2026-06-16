@@ -81,7 +81,7 @@ void Testcase::latencyHelper(const MemcpyBuffer &dataBuffer, bool measureDeviceT
         // For device-to-device latency, create and initialize pattern on device
         for (uint64_t i = 0; i < n_ptrs; i++) {
             struct LatencyNode node;
-            size_t nextOffset = ((i + strideLen) % n_ptrs) * sizeof(struct LatencyNode);
+            size_t nextOffset = ((i + latencyStrideLen) % n_ptrs) * sizeof(struct LatencyNode);
             // Set up pattern with device addresses
             node.next = (struct LatencyNode*)(dataBuffer.getBuffer() + nextOffset);
             CU_ASSERT(cuMemcpyHtoD(dataBuffer.getBuffer() + i*sizeof(struct LatencyNode),
@@ -91,7 +91,7 @@ void Testcase::latencyHelper(const MemcpyBuffer &dataBuffer, bool measureDeviceT
         // For host-device latency, initialize pattern with host addresses
         struct LatencyNode* hostMem = (struct LatencyNode*)dataBuffer.getBuffer();
         for (uint64_t i = 0; i < n_ptrs; i++) {
-            hostMem[i].next = &hostMem[(i + strideLen) % n_ptrs];
+            hostMem[i].next = &hostMem[(i + latencyStrideLen) % n_ptrs];
         }
     }
 }

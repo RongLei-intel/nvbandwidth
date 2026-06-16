@@ -28,10 +28,30 @@ void HostDeviceLatencySM::run(unsigned long long size, unsigned long long loopCo
     for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
         HostBuffer dataBuffer(size, deviceId);
         latencyHelper(dataBuffer, false);
+        if (flushHostCache) {
+            dataBuffer.flushFromCpuCache();
+        }
         latencyValues.value(0, deviceId) = ptrChaseOp.doPtrChase(deviceId, dataBuffer);
+        for (unsigned long long iteration = 1; iteration < loopCount; iteration++) {
+            ptrChaseOp.doPtrChase(deviceId, dataBuffer);
+        }
     }
 
     output->addTestcaseResults(latencyValues, "memory latency SM CPU(row) <-> GPU(column) (ns)");
+}
+
+void HostDeviceBandwidthSM::run(unsigned long long size, unsigned long long loopCount) {
+    PeerValueMatrix<double> bandwidthValues(1, deviceCount, key);
+    MemcpyOperation hostReadInstance(loopCount, new MemcpyInitiatorSMHostRead());
+
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+        HostBuffer hostBuffer(size, deviceId);
+        DeviceBuffer sinkBuffer(size, deviceId);
+
+        bandwidthValues.value(0, deviceId) = hostReadInstance.doMemcpy(hostBuffer, sinkBuffer);
+    }
+
+    output->addTestcaseResults(bandwidthValues, "host read SM CPU(row) -> GPU(column) bandwidth (GB/s)");
 }
 
 void HostToDeviceSM::run(unsigned long long size, unsigned long long loopCount) {
