@@ -104,20 +104,34 @@ __device__ __forceinline__ void accumulateUint4(uint4 &acc, const uint4 &value) 
     acc.w ^= value.w;
 }
 
-template <int PARALLEL_READS>
-__global__ void simpleHostReadKernel(unsigned long long loopCount, uint4 *dst, const uint4 *src, size_t nElems) {
+template <int READ_BYTES>
+__device__ __forceinline__ void accumulateHostRead(uint4 &acc, const char *src) {
+    if constexpr (READ_BYTES == 8) {
+        unsigned long long value = __ldcg(reinterpret_cast<const unsigned long long *>(src));
+        acc.x ^= static_cast<unsigned int>(value);
+        acc.y ^= static_cast<unsigned int>(value >> 32);
+    } else {
+        #pragma unroll
+        for (int i = 0; i < READ_BYTES / sizeof(uint4); i++) {
+            accumulateUint4(acc, __ldcg(reinterpret_cast<const uint4 *>(src) + i));
+        }
+    }
+}
+
+template <int PARALLEL_READS, int READ_BYTES>
+__global__ void simpleHostReadKernel(unsigned long long loopCount, uint4 *dst, const char *src, size_t nReads) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int totalThreadCount = blockDim.x * gridDim.x;
     uint4 acc = make_uint4(0, 0, 0, 0);
 
     for (unsigned int i = 0; i < loopCount; i++) {
-        const uint4 *curSrc = src + idx;
+        size_t curRead = idx;
 
         #pragma unroll
         for (int j = 0; j < PARALLEL_READS; j++) {
-            if (curSrc < src + nElems) {
-                accumulateUint4(acc, __ldcg(curSrc));
-                curSrc += totalThreadCount;
+            if (curRead < nReads) {
+                accumulateHostRead<READ_BYTES>(acc, src + curRead * READ_BYTES);
+                curRead += totalThreadCount;
             }
         }
     }
@@ -125,69 +139,105 @@ __global__ void simpleHostReadKernel(unsigned long long loopCount, uint4 *dst, c
     dst[idx] = acc;
 }
 
-template <int PARALLEL_READS>
-__global__ void stridingHostReadKernel(unsigned int totalThreadCount, unsigned long long loopCount, uint4 *dst, const uint4 *src, size_t chunkSizeInElement) {
+template <int PARALLEL_READS, int READ_BYTES>
+__global__ void stridingHostReadKernel(unsigned int totalThreadCount, unsigned long long loopCount, uint4 *dst, const char *src, size_t chunkSizeInReads) {
     const unsigned long long from = blockDim.x * blockIdx.x + threadIdx.x;
-    const unsigned long long bigChunkSizeInElement = chunkSizeInElement / PARALLEL_READS;
-    const uint4 *threadSrc = src + from;
+    const unsigned long long bigChunkSizeInReads = chunkSizeInReads / PARALLEL_READS;
+    const char *threadSrc = src + from * READ_BYTES;
     uint4 *threadDst = dst + from;
-    const uint4 *srcBigEnd = threadSrc + (bigChunkSizeInElement * PARALLEL_READS) * totalThreadCount;
-    const uint4 *srcEnd = threadSrc + chunkSizeInElement * totalThreadCount;
+    const char *srcBigEnd = threadSrc + (bigChunkSizeInReads * PARALLEL_READS) * totalThreadCount * READ_BYTES;
+    const char *srcEnd = threadSrc + chunkSizeInReads * totalThreadCount * READ_BYTES;
     uint4 acc = make_uint4(0, 0, 0, 0);
 
     for (unsigned int i = 0; i < loopCount; i++) {
-        const uint4 *curSrc = threadSrc;
+        const char *curSrc = threadSrc;
 
         while (curSrc < srcBigEnd) {
-            uint4 pipe[PARALLEL_READS];
-
             #pragma unroll
             for (int j = 0; j < PARALLEL_READS; j++) {
-                pipe[j] = __ldcg(curSrc);
-                curSrc += totalThreadCount;
-            }
-
-            #pragma unroll
-            for (int j = 0; j < PARALLEL_READS; j++) {
-                accumulateUint4(acc, pipe[j]);
+                accumulateHostRead<READ_BYTES>(acc, curSrc);
+                curSrc += totalThreadCount * READ_BYTES;
             }
         }
 
         while (curSrc < srcEnd) {
-            accumulateUint4(acc, __ldcg(curSrc));
-            curSrc += totalThreadCount;
+            accumulateHostRead<READ_BYTES>(acc, curSrc);
+            curSrc += totalThreadCount * READ_BYTES;
         }
     }
 
     *threadDst = acc;
 }
 
-template <int PARALLEL_READS>
+template <int PARALLEL_READS, int READ_BYTES>
 size_t launchHostReadKernel(MemcpyDescriptor &desc, unsigned int totalThreadCount, int numSm) {
     if (desc.copySize < (smallBufferThreshold * _MiB)) {
-        unsigned int numUint4 = desc.copySize / sizeof(uint4);
-        dim3 block(std::min(numUint4, static_cast<unsigned int>(1024)));
-        dim3 grid(numUint4 / block.x);
-        numUint4 = grid.x * block.x;
-        simpleHostReadKernel<PARALLEL_READS><<<grid, block, 0, desc.stream>>>(desc.loopCount, (uint4 *)desc.dst, (const uint4 *)desc.src, numUint4);
-        return numUint4 * sizeof(uint4);
+        size_t numReads = desc.copySize / READ_BYTES;
+        size_t maxSinkWrites = desc.copySize / sizeof(uint4);
+        if (numReads == 0 || maxSinkWrites == 0) {
+            return 0;
+        }
+        numReads = std::min(numReads, maxSinkWrites * static_cast<size_t>(PARALLEL_READS));
+        size_t threadCount = (numReads + PARALLEL_READS - 1) / PARALLEL_READS;
+        dim3 block(std::min(threadCount, static_cast<size_t>(1024)));
+        dim3 grid(threadCount / block.x);
+        threadCount = grid.x * block.x;
+        numReads = std::min(numReads, threadCount * static_cast<size_t>(PARALLEL_READS));
+        simpleHostReadKernel<PARALLEL_READS, READ_BYTES><<<grid, block, 0, desc.stream>>>(desc.loopCount, (uint4 *)desc.dst, (const char *)desc.src, numReads);
+        return numReads * READ_BYTES;
     }
 
-    size_t sizeInElement = desc.copySize / sizeof(uint4);
-    sizeInElement = totalThreadCount * (sizeInElement / totalThreadCount);
-    size_t chunkSizeInElement = sizeInElement / totalThreadCount;
+    size_t sizeInReads = desc.copySize / READ_BYTES;
+    sizeInReads = totalThreadCount * (sizeInReads / totalThreadCount);
+    size_t chunkSizeInReads = sizeInReads / totalThreadCount;
 
     dim3 gridDim(numSm, 1, 1);
     dim3 blockDim(numThreadPerBlock, 1, 1);
-    stridingHostReadKernel<PARALLEL_READS><<<gridDim, blockDim, 0, desc.stream>>>(totalThreadCount, desc.loopCount, (uint4 *)desc.dst, (const uint4 *)desc.src, chunkSizeInElement);
+    stridingHostReadKernel<PARALLEL_READS, READ_BYTES><<<gridDim, blockDim, 0, desc.stream>>>(totalThreadCount, desc.loopCount, (uint4 *)desc.dst, (const char *)desc.src, chunkSizeInReads);
 
-    return sizeInElement * sizeof(uint4);
+    return sizeInReads * READ_BYTES;
+}
+
+template <int PARALLEL_READS>
+size_t launchHostReadKernelWithReadBytes(MemcpyDescriptor &desc, unsigned int totalThreadCount, int numSm) {
+    switch (hostReadBytes) {
+        case 8:
+            return launchHostReadKernel<PARALLEL_READS, 8>(desc, totalThreadCount, numSm);
+        case 16:
+            return launchHostReadKernel<PARALLEL_READS, 16>(desc, totalThreadCount, numSm);
+        case 32:
+            return launchHostReadKernel<PARALLEL_READS, 32>(desc, totalThreadCount, numSm);
+        case 64:
+            return launchHostReadKernel<PARALLEL_READS, 64>(desc, totalThreadCount, numSm);
+        case 128:
+            return launchHostReadKernel<PARALLEL_READS, 128>(desc, totalThreadCount, numSm);
+        case 256:
+            return launchHostReadKernel<PARALLEL_READS, 256>(desc, totalThreadCount, numSm);
+        default:
+            throw std::string("Unsupported hostReadBytes value");
+    }
 }
 
 __global__ void ptrChasingKernel(struct LatencyNode *data, size_t size, unsigned int accesses, unsigned int targetBlock) {
     struct LatencyNode *p = data;
     if (blockIdx.x != targetBlock) return;
     for (auto i = 0; i < accesses; ++i) {
+        p = p->next;
+    }
+
+    // avoid compiler optimization
+    if (p == nullptr) {
+        __trap();
+    }
+}
+
+__global__ void ptrChasingBandwidthKernel(struct LatencyNode *data, size_t nPtrs, unsigned long long accessesPerChain) {
+    const unsigned long long chainId = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned long long totalChains = gridDim.x * blockDim.x;
+    const unsigned long long startIdx = (chainId * nPtrs) / totalChains;
+    struct LatencyNode *p = data + startIdx;
+
+    for (unsigned long long i = 0; i < accessesPerChain; ++i) {
         p = p->next;
     }
 
@@ -267,6 +317,67 @@ double latencyPtrChaseKernel(const int srcId, void* data, size_t size, unsigned 
     return finalLatencyPerAccessNs;
 }
 
+double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigned long long loopCount, unsigned int chainsPerSm) {
+    const size_t nPtrs = size / sizeof(struct LatencyNode);
+    if (nPtrs == 0) {
+        return 0.0;
+    }
+
+    CUstream stream;
+    CUcontext srcCtx;
+    cudaEvent_t start, end;
+    CUdevice dev;
+    int smCount = 0;
+    PerformanceStatistic bandwidthStats;
+
+    CU_ASSERT(cuDevicePrimaryCtxRetain(&srcCtx, srcId));
+    CU_ASSERT(cuCtxSetCurrent(srcCtx));
+    CU_ASSERT(cuCtxGetDevice(&dev));
+    CU_ASSERT(cuDeviceGetAttribute(&smCount, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, dev));
+
+    CUDA_ASSERT(cudaEventCreate(&start));
+    CUDA_ASSERT(cudaEventCreate(&end));
+    CU_ASSERT(cuStreamCreate(&stream, CU_STREAM_DEFAULT));
+
+    const unsigned int blockCount = static_cast<unsigned int>(smCount);
+    const unsigned int threadsPerBlock = chainsPerSm;
+    const unsigned long long totalChains = static_cast<unsigned long long>(blockCount) * threadsPerBlock;
+    const unsigned long long baseAccessesPerChain = std::max(1ULL, static_cast<unsigned long long>(nPtrs) / totalChains);
+    const unsigned long long measuredAccessesPerChain = baseAccessesPerChain * loopCount;
+    const unsigned long long measuredAccesses = measuredAccessesPerChain * totalChains;
+
+    for (unsigned int n = 0; n < averageLoopCount; n++) {
+        if (warmupCount > 0) {
+            ptrChasingBandwidthKernel<<<blockCount, threadsPerBlock, 0, stream>>>((struct LatencyNode*)data, nPtrs, baseAccessesPerChain * warmupCount);
+            CUDA_ASSERT(cudaGetLastError());
+            CU_ASSERT(cuStreamSynchronize(stream));
+        }
+
+        CUDA_ASSERT(cudaEventRecord(start, stream));
+        ptrChasingBandwidthKernel<<<blockCount, threadsPerBlock, 0, stream>>>((struct LatencyNode*)data, nPtrs, measuredAccessesPerChain);
+        CUDA_ASSERT(cudaEventRecord(end, stream));
+        CUDA_ASSERT(cudaGetLastError());
+        CU_ASSERT(cuStreamSynchronize(stream));
+
+        float elapsedMs = 0.0f;
+        CUDA_ASSERT(cudaEventElapsedTime(&elapsedMs, start, end));
+        const double elapsedUs = static_cast<double>(elapsedMs) * 1000.0;
+        const double bytesRead = static_cast<double>(measuredAccesses) * sizeof(struct LatencyNode);
+        const double bandwidth = (bytesRead * 1000.0 * 1000.0) / elapsedUs;
+        bandwidthStats(bandwidth);
+
+        VERBOSE << "\tSample " << n << ": pointer-chase host reads: "
+                << std::fixed << std::setprecision(2) << bandwidth * 1e-9 << " GB/s"
+                << " (" << totalChains << " chains, " << measuredAccessesPerChain << " accesses/chain)\n";
+    }
+
+    CUDA_ASSERT(cudaEventDestroy(start));
+    CUDA_ASSERT(cudaEventDestroy(end));
+    CU_ASSERT(cuStreamDestroy(stream));
+
+    return bandwidthStats.returnAppropriateMetric() * 1e-9;
+}
+
 size_t copyKernel(MemcpyDescriptor &desc) {
     CUdevice dev;
     CUcontext ctx;
@@ -341,20 +452,36 @@ size_t hostReadKernel(MemcpyDescriptor &desc) {
 
     switch (hostReadParallelism) {
         case 1:
-            return launchHostReadKernel<1>(desc, totalThreadCount, numSm);
+            return launchHostReadKernelWithReadBytes<1>(desc, totalThreadCount, numSm);
         case 2:
-            return launchHostReadKernel<2>(desc, totalThreadCount, numSm);
+            return launchHostReadKernelWithReadBytes<2>(desc, totalThreadCount, numSm);
         case 4:
-            return launchHostReadKernel<4>(desc, totalThreadCount, numSm);
+            return launchHostReadKernelWithReadBytes<4>(desc, totalThreadCount, numSm);
         case 8:
-            return launchHostReadKernel<8>(desc, totalThreadCount, numSm);
+            return launchHostReadKernelWithReadBytes<8>(desc, totalThreadCount, numSm);
         case 16:
-            return launchHostReadKernel<16>(desc, totalThreadCount, numSm);
+            return launchHostReadKernelWithReadBytes<16>(desc, totalThreadCount, numSm);
         case 32:
-            return launchHostReadKernel<32>(desc, totalThreadCount, numSm);
+            return launchHostReadKernelWithReadBytes<32>(desc, totalThreadCount, numSm);
         default:
             throw std::string("Unsupported hostReadParallelism value");
     }
+}
+
+template <int READ_BYTES>
+void preloadHostReadKernels(cudaFuncAttributes *unused) {
+    cudaFuncGetAttributes(unused, &simpleHostReadKernel<1, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &simpleHostReadKernel<2, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &simpleHostReadKernel<4, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &simpleHostReadKernel<8, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &simpleHostReadKernel<16, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &simpleHostReadKernel<32, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &stridingHostReadKernel<1, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &stridingHostReadKernel<2, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &stridingHostReadKernel<4, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &stridingHostReadKernel<8, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &stridingHostReadKernel<16, READ_BYTES>);
+    cudaFuncGetAttributes(unused, &stridingHostReadKernel<32, READ_BYTES>);
 }
 
 size_t multicastCopy(CUdeviceptr dstBuffer, CUdeviceptr srcBuffer, size_t size, CUstream stream, unsigned long long loopCount) {
@@ -580,19 +707,14 @@ void preloadKernels(int deviceCount) {
         cudaFuncGetAttributes(&unused, &spinKernelDeviceMultistage);
         cudaFuncGetAttributes(&unused, &simpleCopyKernel);
         cudaFuncGetAttributes(&unused, &splitWarpCopyKernel);
-        cudaFuncGetAttributes(&unused, &simpleHostReadKernel<1>);
-        cudaFuncGetAttributes(&unused, &simpleHostReadKernel<2>);
-        cudaFuncGetAttributes(&unused, &simpleHostReadKernel<4>);
-        cudaFuncGetAttributes(&unused, &simpleHostReadKernel<8>);
-        cudaFuncGetAttributes(&unused, &simpleHostReadKernel<16>);
-        cudaFuncGetAttributes(&unused, &simpleHostReadKernel<32>);
-        cudaFuncGetAttributes(&unused, &stridingHostReadKernel<1>);
-        cudaFuncGetAttributes(&unused, &stridingHostReadKernel<2>);
-        cudaFuncGetAttributes(&unused, &stridingHostReadKernel<4>);
-        cudaFuncGetAttributes(&unused, &stridingHostReadKernel<8>);
-        cudaFuncGetAttributes(&unused, &stridingHostReadKernel<16>);
-        cudaFuncGetAttributes(&unused, &stridingHostReadKernel<32>);
+        preloadHostReadKernels<8>(&unused);
+        preloadHostReadKernels<16>(&unused);
+        preloadHostReadKernels<32>(&unused);
+        preloadHostReadKernels<64>(&unused);
+        preloadHostReadKernels<128>(&unused);
+        preloadHostReadKernels<256>(&unused);
         cudaFuncGetAttributes(&unused, &ptrChasingKernel);
+        cudaFuncGetAttributes(&unused, &ptrChasingBandwidthKernel);
         cudaFuncGetAttributes(&unused, &multicastCopyKernel);
         cudaFuncGetAttributes(&unused, &memsetKernelDevice);
         cudaFuncGetAttributes(&unused, &memcmpKernelDevice);

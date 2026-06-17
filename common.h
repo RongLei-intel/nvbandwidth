@@ -49,12 +49,14 @@ const unsigned int _MiB = 1024 * 1024;
 const unsigned int _2MiB = 2 * _MiB;
 const unsigned int numThreadPerBlock = 512;
 const unsigned int defaultLatencyStrideLen = 16; /* cacheLine size 128 Bytes, 16 LatencyNode entries */
-const unsigned int defaultHostReadParallelism = 16;
+const unsigned int defaultHostReadParallelism = 256;
+const unsigned int defaultHostReadBytes = 16;
 const unsigned long latencyMemAccessCnt = 1000000; /* 1M total read accesses to gauge latency */
 extern int deviceCount;
 extern unsigned int averageLoopCount;
 extern unsigned int latencyStrideLen;
 extern unsigned int hostReadParallelism;
+extern unsigned int hostReadBytes;
 extern unsigned long long warmupCount;
 extern bool disableAffinity;
 extern bool skipVerification;

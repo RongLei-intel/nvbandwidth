@@ -258,4 +258,11 @@ class MemPtrChaseOperation : public MemoryOperation {
     unsigned int smCount;
 };
 
+class MemPtrChaseBandwidthOperation : public MemoryOperation {
+ public:
+      MemPtrChaseBandwidthOperation() = default;
+      ~MemPtrChaseBandwidthOperation() = default;
+      double doPtrChaseBandwidth(const int srcId, const MemcpyBuffer &peerBuffer, unsigned long long loopCount);
+};
+
 #endif  // MEMCPY_H_

@@ -656,3 +656,7 @@ double MemPtrChaseOperation::doPtrChase(const int srcId, const MemcpyBuffer &pee
     lat = latencyPtrChaseKernel(srcId, (void*)peerBuffer.getBuffer(), peerBuffer.getBufferSize(), latencyMemAccessCnt, smCount);
     return lat;
 }
+
+double MemPtrChaseBandwidthOperation::doPtrChaseBandwidth(const int srcId, const MemcpyBuffer &peerBuffer, unsigned long long loopCount) {
+    return bandwidthPtrChaseKernel(srcId, (void*)peerBuffer.getBuffer(), peerBuffer.getBufferSize(), loopCount, hostReadParallelism);
+}

@@ -42,16 +42,19 @@ void HostDeviceLatencySM::run(unsigned long long size, unsigned long long loopCo
 
 void HostDeviceBandwidthSM::run(unsigned long long size, unsigned long long loopCount) {
     PeerValueMatrix<double> bandwidthValues(1, deviceCount, key);
-    MemcpyOperation hostReadInstance(loopCount, new MemcpyInitiatorSMHostRead());
+    MemPtrChaseBandwidthOperation ptrChaseBandwidthOp;
 
     for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
         HostBuffer hostBuffer(size, deviceId);
-        DeviceBuffer sinkBuffer(size, deviceId);
+        latencyHelper(hostBuffer, false);
+        if (flushHostCache) {
+            hostBuffer.flushFromCpuCache();
+        }
 
-        bandwidthValues.value(0, deviceId) = hostReadInstance.doMemcpy(hostBuffer, sinkBuffer);
+        bandwidthValues.value(0, deviceId) = ptrChaseBandwidthOp.doPtrChaseBandwidth(deviceId, hostBuffer, loopCount);
     }
 
-    output->addTestcaseResults(bandwidthValues, "host read SM CPU(row) -> GPU(column) bandwidth (GB/s)");
+    output->addTestcaseResults(bandwidthValues, "pointer-chase host read SM CPU(row) -> GPU(column) bandwidth (GB/s)");
 }
 
 void HostToDeviceSM::run(unsigned long long size, unsigned long long loopCount) {

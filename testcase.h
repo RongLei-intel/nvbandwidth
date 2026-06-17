@@ -278,10 +278,10 @@ class HostDeviceLatencySM: public Testcase {
 class HostDeviceBandwidthSM: public Testcase {
  public:
     HostDeviceBandwidthSM() : Testcase("host_device_bandwidth_sm",
-            "\tHost - device read bandwidth using a copy-kernel-style SM kernel\n"
-            "\tA pinned host buffer is allocated with NUMA affinity and the GPU issues many parallel reads\n"
-            "\tUse --hostReadParallelism to control the number of independent host reads issued per thread\n"
-            "\tOnly host-buffer read traffic is counted for bandwidth; a device buffer is used as a small sink") {}
+            "\tHost - device random read bandwidth using a concurrent pointer-chase SM kernel\n"
+            "\tA pinned host buffer is allocated with NUMA affinity and initialized like host_device_latency_sm\n"
+            "\tEach SM runs independent pointer-chase chains concurrently; use --hostReadParallelism to control chains per SM\n"
+            "\tUse --latencyStrideLen to set the pointer-chase stride; each pointer dereference is counted as 8 bytes") {}
     virtual ~HostDeviceBandwidthSM() {}
     void run(unsigned long long size, unsigned long long loopCount);
 };

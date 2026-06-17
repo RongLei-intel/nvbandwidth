@@ -1,0 +1,19 @@
+# Build outputs / generated CMake files
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+nvbandwidth
+
+# Profiling and benchmark output directories
+amdprof_*/
+perf_*/
+latency_*_sweep_*/
+
+# Local profiling artifacts
+*.out
+*.err
+*.log
+*.sqlite
+*.dat
+.stat
