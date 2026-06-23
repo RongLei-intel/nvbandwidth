@@ -28,6 +28,9 @@ set -euo pipefail
 #   SAMPLE_INTERVAL_MS=100         AMDuProfPcm -I interval
 #   PROFILE_SECONDS=               optional AMDuProfPcm -d seconds; empty means stop when app exits
 #   START_DELAY_MS=0               optional AMDuProfPcm --start-delay milliseconds
+#   PCM_WAIT_FOR_SIGNAL=0          set 1 to add AMDuProfPcm --wait-for-signal and let nvbandwidth send SIGUSR1 start
+#   PCM_SIGNAL_END=1               with PCM_WAIT_FOR_SIGNAL=1, let nvbandwidth send SIGINT end after testcase 33 active region
+#   PCM_SIGNAL_READY_DELAY_MS=200  delay after starting AMDuProfPcm before launching workload in signal mode
 #   COLLECT_POWER=0                set 1 to add --collect-power
 #   COLLECT_PCIE=0                 set 1 to add --collect-pcie, in addition to pcie metric
 #   COLLECT_XGMI=0                 set 1 to add --collect-xgmi
@@ -42,8 +45,8 @@ TESTCASE="${TESTCASE:-33}"
 BUFFER_SIZE="${BUFFER_SIZE:-}"
 LOOP_COUNT="${LOOP_COUNT:-}"
 TEST_SAMPLES="${TEST_SAMPLES:-}"
-HOST_READ_PARALLELISM="${HOST_READ_PARALLELISM:-}"
-LATENCY_STRIDE_LEN="${LATENCY_STRIDE_LEN:-}"
+HOST_READ_PARALLELISM="${HOST_READ_PARALLELISM:-512}"
+LATENCY_STRIDE_LEN="${LATENCY_STRIDE_LEN:-8}"
 VERBOSE_NVBW="${VERBOSE_NVBW:-0}"
 SKIP_VERIFICATION="${SKIP_VERIFICATION:-0}"
 EXTRA_NVBW_ARGS="${EXTRA_NVBW_ARGS:-}"
@@ -53,6 +56,9 @@ PCM_AGGREGATE="${PCM_AGGREGATE:-system,package}"
 SAMPLE_INTERVAL_MS="${SAMPLE_INTERVAL_MS:-100}"
 PROFILE_SECONDS="${PROFILE_SECONDS:-}"
 START_DELAY_MS="${START_DELAY_MS:-0}"
+PCM_WAIT_FOR_SIGNAL="${PCM_WAIT_FOR_SIGNAL:-0}"
+PCM_SIGNAL_END="${PCM_SIGNAL_END:-1}"
+PCM_SIGNAL_READY_DELAY_MS="${PCM_SIGNAL_READY_DELAY_MS:-200}"
 COLLECT_POWER="${COLLECT_POWER:-0}"
 COLLECT_PCIE="${COLLECT_PCIE:-0}"
 COLLECT_XGMI="${COLLECT_XGMI:-0}"
@@ -142,9 +148,14 @@ fi
 if [[ "$HTML_REPORT" != "0" ]]; then
   extra_pcm_args+=(--html)
 fi
+if [[ "$PCM_WAIT_FOR_SIGNAL" != "0" ]]; then
+    extra_pcm_args+=(--wait-for-signal)
+fi
 
 workload_cmd=(
   env "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+    "NVB_AMDPROF_SIGNAL_MARKERS=${PCM_WAIT_FOR_SIGNAL}"
+    "NVB_AMDPROF_SIGNAL_END=${PCM_SIGNAL_END}"
   numactl "--membind=${NUMA_NODE}" "--physcpubind=${CPU_BIND}"
   ./nvbandwidth "${nvbandwidth_args[@]}"
 )
@@ -159,9 +170,11 @@ pcm_cmd=(
   -I "$SAMPLE_INTERVAL_MS"
   -O "$OUTDIR"
   "${extra_pcm_args[@]}"
-  --
-  "${workload_cmd[@]}"
 )
+
+if [[ "$PCM_WAIT_FOR_SIGNAL" == "0" ]]; then
+    pcm_cmd+=(-- "${workload_cmd[@]}")
+fi
 
 {
   printf '%q ' "${pcm_cmd[@]}"
@@ -192,6 +205,9 @@ pcm_aggregate=$PCM_AGGREGATE
 sample_interval_ms=$SAMPLE_INTERVAL_MS
 profile_seconds=$PROFILE_SECONDS
 start_delay_ms=$START_DELAY_MS
+pcm_wait_for_signal=$PCM_WAIT_FOR_SIGNAL
+pcm_signal_end=$PCM_SIGNAL_END
+pcm_signal_ready_delay_ms=$PCM_SIGNAL_READY_DELAY_MS
 collect_power=$COLLECT_POWER
 collect_pcie=$COLLECT_PCIE
 collect_xgmi=$COLLECT_XGMI
@@ -202,20 +218,51 @@ echo "Collecting AMD uProf PCM metrics..."
 echo "  output dir : $OUTDIR"
 echo "  metrics    : $PCM_METRICS"
 echo "  aggregate  : $PCM_AGGREGATE"
+echo "  wait signal: $PCM_WAIT_FOR_SIGNAL"
 echo "  workload   : ${workload_cmd[*]}"
 echo
 
 set +e
-"${pcm_cmd[@]}" > "$OUTDIR/amdprof_pcm.out" 2> "$OUTDIR/amdprof_pcm.err"
-amdprof_rc=$?
+workload_rc=0
+if [[ "$PCM_WAIT_FOR_SIGNAL" != "0" ]]; then
+    "${pcm_cmd[@]}" > "$OUTDIR/amdprof_pcm.out" 2> "$OUTDIR/amdprof_pcm.err" &
+    amdprof_pid=$!
+    python3 - "$PCM_SIGNAL_READY_DELAY_MS" <<'PY'
+import sys
+import time
+time.sleep(max(0, int(sys.argv[1])) / 1000.0)
+PY
+    workload_cmd=(
+        env "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+        "NVB_AMDPROF_SIGNAL_MARKERS=${PCM_WAIT_FOR_SIGNAL}"
+        "NVB_AMDPROF_SIGNAL_END=${PCM_SIGNAL_END}"
+        "NVB_AMDPROF_SIGNAL_PID=${amdprof_pid}"
+        numactl "--membind=${NUMA_NODE}" "--physcpubind=${CPU_BIND}"
+        ./nvbandwidth "${nvbandwidth_args[@]}"
+    )
+    "${workload_cmd[@]}" > "$OUTDIR/nvbandwidth.out" 2> "$OUTDIR/nvbandwidth.err"
+    workload_rc=$?
+    wait "$amdprof_pid"
+    amdprof_rc=$?
+else
+    "${pcm_cmd[@]}" > "$OUTDIR/amdprof_pcm.out" 2> "$OUTDIR/amdprof_pcm.err"
+    amdprof_rc=$?
+fi
 set -e
 
 echo "amdprof_rc=$amdprof_rc" >> "$OUTDIR/run.info"
+echo "workload_rc=$workload_rc" >> "$OUTDIR/run.info"
 
 if [[ "$amdprof_rc" -ne 0 ]]; then
   echo "ERROR: AMDuProfPcm failed with rc=$amdprof_rc" >&2
   echo "See: $OUTDIR/amdprof_pcm.out and $OUTDIR/amdprof_pcm.err" >&2
   exit "$amdprof_rc"
+fi
+
+if [[ "$workload_rc" -ne 0 ]]; then
+    echo "ERROR: workload failed with rc=$workload_rc" >&2
+    echo "See: $OUTDIR/amdprof_pcm.out and $OUTDIR/amdprof_pcm.err" >&2
+    exit "$workload_rc"
 fi
 
 report_dir="$(find "$OUTDIR" -maxdepth 1 -type d -name 'AMDuProfPcm-*' | sort | tail -n 1)"
@@ -307,7 +354,10 @@ def load_timeseries(path):
     return columns, data
 
 columns, data = load_timeseries(report_dir / 'report-timeseries.csv')
-nv_output = (outdir / 'amdprof_pcm.out').read_text(errors='replace')
+nv_output_path = outdir / 'nvbandwidth.out'
+if not nv_output_path.exists():
+    nv_output_path = outdir / 'amdprof_pcm.out'
+nv_output = nv_output_path.read_text(errors='replace')
 reported = None
 for line in nv_output.splitlines():
     m = re.match(r'^SUM\s+host_device_bandwidth_sm\s+([0-9.]+)', line.strip())
@@ -447,7 +497,9 @@ PY
 echo
 echo "Done. Files written under: $OUTDIR"
 echo "  nvbandwidth/uProf stdout : $OUTDIR/amdprof_pcm.out"
+[[ -f "$OUTDIR/nvbandwidth.out" ]] && echo "  nvbandwidth stdout       : $OUTDIR/nvbandwidth.out"
 echo "  uProf stderr            : $OUTDIR/amdprof_pcm.err"
+[[ -f "$OUTDIR/nvbandwidth.err" ]] && echo "  nvbandwidth stderr       : $OUTDIR/nvbandwidth.err"
 echo "  timeseries CSV          : $OUTDIR/report-timeseries.csv"
 echo "  cumulative CSV          : $OUTDIR/report-cumulative.csv"
 echo "  parsed summary          : $OUTDIR/summary.txt"

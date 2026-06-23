@@ -17,6 +17,58 @@
 
 #include "kernels.cuh"
 
+#ifndef _WIN32
+#include <csignal>
+#include <cstdlib>
+#include <unistd.h>
+#endif
+
+#ifndef _WIN32
+static bool amdProfSignalMarkersEnabled() {
+    const char *enabled = std::getenv("NVB_AMDPROF_SIGNAL_MARKERS");
+    return enabled != nullptr && std::string(enabled) != "0";
+}
+
+static bool amdProfSignalEndEnabled() {
+    const char *enabled = std::getenv("NVB_AMDPROF_SIGNAL_END");
+    return enabled == nullptr || std::string(enabled) != "0";
+}
+
+static pid_t amdProfSignalPid() {
+    const char *pidStr = std::getenv("NVB_AMDPROF_SIGNAL_PID");
+    if (pidStr != nullptr && pidStr[0] != '\0') {
+        char *end = nullptr;
+        const long pid = std::strtol(pidStr, &end, 10);
+        if (end != pidStr && pid > 1) {
+            return static_cast<pid_t>(pid);
+        }
+    }
+    return getppid();
+}
+
+static void signalAmdProfPcm(int signal, const char *name) {
+    if (!amdProfSignalMarkersEnabled()) {
+        return;
+    }
+
+    const pid_t pid = amdProfSignalPid();
+    if (pid <= 1) {
+        VERBOSE << "\tSkipping AMDuProfPcm " << name << " signal: invalid pid " << pid << "\n";
+        return;
+    }
+
+    if (kill(pid, signal) == 0) {
+        VERBOSE << "\tSent AMDuProfPcm " << name << " signal to pid " << pid << "\n";
+    } else {
+        VERBOSE << "\tFailed to send AMDuProfPcm " << name << " signal to pid " << pid << "\n";
+    }
+}
+#else
+static bool amdProfSignalMarkersEnabled() { return false; }
+static bool amdProfSignalEndEnabled() { return false; }
+static void signalAmdProfPcm(int, const char *) {}
+#endif
+
 __global__ void simpleCopyKernel(unsigned long long loopCount, uint4 *dst, uint4 *src) {
     for (unsigned int i = 0; i < loopCount; i++) {
         const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -231,14 +283,31 @@ __global__ void ptrChasingKernel(struct LatencyNode *data, size_t size, unsigned
     }
 }
 
-__global__ void ptrChasingBandwidthKernel(struct LatencyNode *data, size_t nPtrs, unsigned long long accessesPerChain) {
-    const unsigned long long chainId = blockIdx.x * blockDim.x + threadIdx.x;
+__device__ __forceinline__ unsigned long long mix64(unsigned long long x) {
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9ULL;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebULL;
+    x ^= x >> 31;
+    return x;
+}
+
+__device__ __forceinline__ struct LatencyNode *loadNextBypassGpuCache(const struct LatencyNode *p) {
+    unsigned long long next;
+    asm volatile ("ld.global.cv.u64 %0, [%1];" : "=l"(next) : "l"(reinterpret_cast<unsigned long long>(p)) : "memory");
+    return reinterpret_cast<struct LatencyNode *>(next);
+}
+
+__global__ void ptrChasingBandwidthKernel(struct LatencyNode *data, size_t nPtrs, unsigned long long accessesPerChain, unsigned long long launchSeed) {
     const unsigned long long totalChains = gridDim.x * blockDim.x;
-    const unsigned long long startIdx = (chainId * nPtrs) / totalChains;
+    const unsigned long long smChainId =
+        (static_cast<unsigned long long>(blockIdx.x) << 32) |
+        static_cast<unsigned long long>(threadIdx.x);
+    const unsigned long long startIdx = mix64(smChainId ^ launchSeed ^ totalChains) % nPtrs;
     struct LatencyNode *p = data + startIdx;
 
     for (unsigned long long i = 0; i < accessesPerChain; ++i) {
-        p = p->next;
+        p = loadNextBypassGpuCache(p);
     }
 
     // avoid compiler optimization
@@ -345,16 +414,24 @@ double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigne
     const unsigned long long baseAccessesPerChain = std::max(1ULL, static_cast<unsigned long long>(nPtrs) / totalChains);
     const unsigned long long measuredAccessesPerChain = baseAccessesPerChain * loopCount;
     const unsigned long long measuredAccesses = measuredAccessesPerChain * totalChains;
+    const bool signalMarkers = amdProfSignalMarkersEnabled();
+
+    if (signalMarkers) {
+        signalAmdProfPcm(SIGUSR1, "start");
+        CU_ASSERT(cuStreamSynchronize(stream));
+    }
 
     for (unsigned int n = 0; n < averageLoopCount; n++) {
         if (warmupCount > 0) {
-            ptrChasingBandwidthKernel<<<blockCount, threadsPerBlock, 0, stream>>>((struct LatencyNode*)data, nPtrs, baseAccessesPerChain * warmupCount);
+            const unsigned long long warmupSeed = 0x9e3779b97f4a7c15ULL ^ (static_cast<unsigned long long>(n) << 32);
+            ptrChasingBandwidthKernel<<<blockCount, threadsPerBlock, 0, stream>>>((struct LatencyNode*)data, nPtrs, baseAccessesPerChain * warmupCount, warmupSeed);
             CUDA_ASSERT(cudaGetLastError());
             CU_ASSERT(cuStreamSynchronize(stream));
         }
 
         CUDA_ASSERT(cudaEventRecord(start, stream));
-        ptrChasingBandwidthKernel<<<blockCount, threadsPerBlock, 0, stream>>>((struct LatencyNode*)data, nPtrs, measuredAccessesPerChain);
+        const unsigned long long measuredSeed = 0xd1b54a32d192ed03ULL ^ (static_cast<unsigned long long>(n) << 32);
+        ptrChasingBandwidthKernel<<<blockCount, threadsPerBlock, 0, stream>>>((struct LatencyNode*)data, nPtrs, measuredAccessesPerChain, measuredSeed);
         CUDA_ASSERT(cudaEventRecord(end, stream));
         CUDA_ASSERT(cudaGetLastError());
         CU_ASSERT(cuStreamSynchronize(stream));
@@ -368,7 +445,11 @@ double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigne
 
         VERBOSE << "\tSample " << n << ": pointer-chase host reads: "
                 << std::fixed << std::setprecision(2) << bandwidth * 1e-9 << " GB/s"
-                << " (" << totalChains << " chains, " << measuredAccessesPerChain << " accesses/chain)\n";
+            << " (" << totalChains << " chains, " << measuredAccessesPerChain << " accesses/chain, randomized start nodes, ld.global.cv)\n";
+    }
+
+    if (signalMarkers && amdProfSignalEndEnabled()) {
+        signalAmdProfPcm(SIGINT, "end");
     }
 
     CUDA_ASSERT(cudaEventDestroy(start));
