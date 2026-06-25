@@ -96,6 +96,34 @@ void Testcase::latencyHelper(const MemcpyBuffer &dataBuffer, bool measureDeviceT
     }
 }
 
+template <typename NodeT>
+static void initHostPtrChaseNodes(const MemcpyBuffer &dataBuffer) {
+    uint64_t n_ptrs = dataBuffer.getBufferSize() / sizeof(NodeT);
+    if (n_ptrs == 0) {
+        return;
+    }
+    NodeT* hostMem = reinterpret_cast<NodeT*>(dataBuffer.getBuffer());
+    for (uint64_t i = 0; i < n_ptrs; i++) {
+        hostMem[i].next = &hostMem[(i + latencyStrideLen) % n_ptrs];
+    }
+}
+
+void Testcase::bandwidthPtrChaseHelper(const MemcpyBuffer &dataBuffer) {
+    switch (ptrChaseLoadBytes) {
+        case 8:
+            initHostPtrChaseNodes<LatencyNode>(dataBuffer);
+            break;
+        case 16:
+            initHostPtrChaseNodes<PtrChaseNode16>(dataBuffer);
+            break;
+        case 32:
+            initHostPtrChaseNodes<PtrChaseNode32>(dataBuffer);
+            break;
+        default:
+            throw std::string("Unsupported ptrChaseLoadBytes value");
+    }
+}
+
 void Testcase::allToOneHelper(unsigned long long size, MemcpyOperation &memcpyInstance, PeerValueMatrix<double> &bandwidthValues, bool isRead) {
     std::vector<const DeviceBuffer*> allSrcBuffers;
 

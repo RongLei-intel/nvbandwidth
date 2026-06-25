@@ -675,5 +675,5 @@ double MemPtrChaseOperation::doPtrChase(const int srcId, const MemcpyBuffer &pee
 }
 
 double MemPtrChaseBandwidthOperation::doPtrChaseBandwidth(const int srcId, const MemcpyBuffer &peerBuffer, unsigned long long loopCount) {
-    return bandwidthPtrChaseKernel(srcId, (void*)peerBuffer.getBuffer(), peerBuffer.getBufferSize(), loopCount, hostReadParallelism);
+    return bandwidthPtrChaseKernel(srcId, (void*)peerBuffer.getBuffer(), peerBuffer.getBufferSize(), loopCount, hostReadParallelism, ptrChaseLoadBytes);
 }

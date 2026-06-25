@@ -46,7 +46,7 @@ void HostDeviceBandwidthSM::run(unsigned long long size, unsigned long long loop
 
     for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
         HostBuffer hostBuffer(size, deviceId);
-        latencyHelper(hostBuffer, false);
+        bandwidthPtrChaseHelper(hostBuffer);
         if (flushHostCache) {
             hostBuffer.flushFromCpuCache();
         }

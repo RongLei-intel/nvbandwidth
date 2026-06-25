@@ -40,6 +40,7 @@ class Testcase {
     void allHostHelper(unsigned long long size, MemcpyOperation &memcpyInstance, PeerValueMatrix<double> &bandwidthValues, bool sourceIsHost);
     void allHostBidirHelper(unsigned long long size, MemcpyOperation &memcpyInstance, PeerValueMatrix<double> &bandwidthValues, bool sourceIsHost);
     void latencyHelper(const MemcpyBuffer &dataBuffer, bool measureDeviceToDeviceLatency);
+        void bandwidthPtrChaseHelper(const MemcpyBuffer &dataBuffer);
 
  public:
     Testcase(std::string key, std::string desc);
@@ -281,7 +282,7 @@ class HostDeviceBandwidthSM: public Testcase {
             "\tHost - device random read bandwidth using a concurrent pointer-chase SM kernel\n"
             "\tA pinned host buffer is allocated with NUMA affinity and initialized like host_device_latency_sm\n"
             "\tEach SM runs independent pointer-chase chains concurrently; use --hostReadParallelism to control chains per SM\n"
-            "\tUse --latencyStrideLen to set the pointer-chase stride; each pointer dereference is counted as 8 bytes") {}
+            "\tUse --latencyStrideLen to set the pointer-chase stride; use --ptrChaseLoadBytes to select 8, 16, or 32-byte loads") {}
     virtual ~HostDeviceBandwidthSM() {}
     void run(unsigned long long size, unsigned long long loopCount);
 };

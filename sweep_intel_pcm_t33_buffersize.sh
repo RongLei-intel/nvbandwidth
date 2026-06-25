@@ -15,6 +15,7 @@ set -euo pipefail
 #   bash sweep_intel_pcm_t33_buffersize.sh
 #   BUFFER_SIZES="2 4 8 16" LOOP_COUNT=500 bash sweep_intel_pcm_t33_buffersize.sh
 #   BUFFER_SIZES="1 2 4" SAMPLE_INTERVAL=1 NVIDIA_DMON_INTERVAL=1 bash sweep_intel_pcm_t33_buffersize.sh
+#   PTR_CHASE_LOAD_BYTES_LIST="8 16 32" BUFFER_SIZES="2 4 8 16" bash sweep_intel_pcm_t33_buffersize.sh
 #   USE_SCALED_LOOP_COUNT=1 BASE_LOOP_COUNT=5000 BASE_BUFFER_MIB=2 bash sweep_intel_pcm_t33_buffersize.sh
 #   PCM_TOOLS="pcm-memory pcm-pcie" INCLUDE_NVIDIA_DMON=1 bash sweep_intel_pcm_t33_buffersize.sh
 #
@@ -28,21 +29,33 @@ set -euo pipefail
 # Sweep-specific tunables:
 #   BUFFER_SIZES="1 2 4 8 16 32 64 128"
 #   OUTROOT=<dir>                 sweep root dir; default timestamped
+#   RUN_LABEL=<name>              optional label added to OUTROOT and log filenames
 #   RETRIES=2                     attempts per buffer
 #   LOOP_COUNT=300                fixed loopCount for all buffers; set empty to use collect script default
 #   USE_SCALED_LOOP_COUNT=0       set 1 to scale loopCount inversely with buffer size
 #   BASE_LOOP_COUNT=5000          loopCount at BASE_BUFFER_MIB when USE_SCALED_LOOP_COUNT=1
 #   BASE_BUFFER_MIB=2             base buffer for scaled loopCount
 #   MIN_LOOP_COUNT=16             lower bound for scaled loopCount
+#   PTR_CHASE_LOAD_BYTES=          optional single --ptrChaseLoadBytes value; supported: 8, 16, 32; 32 requires sm_100+
+#   PTR_CHASE_LOAD_BYTES_LIST="8 16 32" optional t33 pointer-chase load-size sweep list; overrides PTR_CHASE_LOAD_BYTES when set
 #   COLLECT_SCRIPT=./collect_pcm_nvsmi_nvbw.sh
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 BUFFER_SIZES="${BUFFER_SIZES:-1 2 4 8 16 32 64 128}"
-OUTROOT="${OUTROOT:-intel_pcm_nvbw_t33_sweep_$(date +%Y%m%d_%H%M%S)}"
 RETRIES="${RETRIES:-2}"
 COLLECT_SCRIPT="${COLLECT_SCRIPT:-./collect_pcm_nvsmi_nvbw.sh}"
+RUN_LABEL="${RUN_LABEL:-}"
+
+if [[ -n "$RUN_LABEL" ]]; then
+    OUTROOT_DEFAULT="intel_pcm_nvbw_t33_${RUN_LABEL}_sweep_$(date +%Y%m%d_%H%M%S)"
+else
+    OUTROOT_DEFAULT="intel_pcm_nvbw_t33_sweep_$(date +%Y%m%d_%H%M%S)"
+fi
+OUTROOT="${OUTROOT:-$OUTROOT_DEFAULT}"
+SWEEP_INFO_FILE="$OUTROOT/sweep${RUN_LABEL:+_${RUN_LABEL}}.info"
+DRIVER_LOG_BASENAME="driver${RUN_LABEL:+_${RUN_LABEL}}.log"
 
 NVBANDWIDTH_BIN="${NVBANDWIDTH_BIN:-./nvbandwidth}"
 TESTCASE="${TESTCASE:-33}"
@@ -53,6 +66,7 @@ TEST_SAMPLES_VALUE="${TEST_SAMPLES-}"
 HOST_READ_PARALLELISM_VALUE="${HOST_READ_PARALLELISM-}"
 LATENCY_STRIDE_LEN_VALUE="${LATENCY_STRIDE_LEN-}"
 EXTRA_NVBW_ARGS_VALUE="${EXTRA_NVBW_ARGS-}"
+PTR_CHASE_LOAD_BYTES_LIST="${PTR_CHASE_LOAD_BYTES_LIST-${PTR_CHASE_LOAD_BYTES-8 16 32}}"
 SKIP_VERIFICATION="${SKIP_VERIFICATION:-1}"
 VERBOSE_NVBW="${VERBOSE_NVBW:-0}"
 
@@ -80,6 +94,23 @@ else
   exit 1
 fi
 
+if [[ -z "${BUFFER_SIZES//[[:space:]]/}" ]]; then
+        echo "ERROR: BUFFER_SIZES is empty; provide values such as BUFFER_SIZES=\"1 2 4 8 16\"" >&2
+        exit 1
+fi
+
+if [[ -z "${PTR_CHASE_LOAD_BYTES_LIST//[[:space:]]/}" ]]; then
+    echo "ERROR: PTR_CHASE_LOAD_BYTES_LIST is empty; provide values such as PTR_CHASE_LOAD_BYTES_LIST=\"8 16 32\"" >&2
+    exit 1
+fi
+
+for ptr_chase_load_bytes in $PTR_CHASE_LOAD_BYTES_LIST; do
+    if [[ "$ptr_chase_load_bytes" != "8" && "$ptr_chase_load_bytes" != "16" && "$ptr_chase_load_bytes" != "32" ]]; then
+        echo "ERROR: PTR_CHASE_LOAD_BYTES_LIST contains unsupported value '$ptr_chase_load_bytes'; supported: 8, 16, 32; 32 requires sm_100+" >&2
+        exit 1
+    fi
+done
+
 mkdir -p "$OUTROOT"
 
 scaled_loop_count() {
@@ -95,6 +126,7 @@ scaled_loop_count() {
 {
   echo "sweep_root=$OUTROOT"
   echo "buffer_sizes_MiB=$BUFFER_SIZES"
+    echo "ptr_chase_load_bytes_list=$PTR_CHASE_LOAD_BYTES_LIST"
   echo "retries=$RETRIES"
   echo "collect_script=$COLLECT_SCRIPT"
   echo "nvbandwidth_bin=$NVBANDWIDTH_BIN"
@@ -122,79 +154,84 @@ scaled_loop_count() {
   echo "latency_stride_len=$LATENCY_STRIDE_LEN_VALUE"
   echo "extra_nvbw_args=$EXTRA_NVBW_ARGS_VALUE"
   echo "start_time=$(date --iso-8601=seconds)"
-} | tee "$OUTROOT/sweep.info"
+} | tee "$SWEEP_INFO_FILE"
 
 failed=0
 
-for b in $BUFFER_SIZES; do
-  ok=0
+for ptr_chase_load_bytes in $PTR_CHASE_LOAD_BYTES_LIST; do
+    for b in $BUFFER_SIZES; do
+        ok=0
 
-  loop_env=()
-  if [[ "$USE_SCALED_LOOP_COUNT" != "0" ]]; then
-    loop_env=("LOOP_COUNT=$(scaled_loop_count "$b")")
-  elif [[ -n "$LOOP_COUNT_VALUE" ]]; then
-    loop_env=("LOOP_COUNT=$LOOP_COUNT_VALUE")
-  else
         loop_env=()
-  fi
+        if [[ "$USE_SCALED_LOOP_COUNT" != "0" ]]; then
+            loop_env=("LOOP_COUNT=$(scaled_loop_count "$b")")
+        elif [[ -n "$LOOP_COUNT_VALUE" ]]; then
+            loop_env=("LOOP_COUNT=$LOOP_COUNT_VALUE")
+        else
+            loop_env=()
+        fi
 
-  common_env=(
-    "NVBANDWIDTH_BIN=$NVBANDWIDTH_BIN"
-    "TESTCASE=$TESTCASE"
-    "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES_VALUE"
-    "NUMA_NODE=$NUMA_NODE_VALUE"
-    "CPU_BIND=$CPU_BIND_VALUE"
-    "TEST_SAMPLES=$TEST_SAMPLES_VALUE"
-    "HOST_READ_PARALLELISM=$HOST_READ_PARALLELISM_VALUE"
-    "LATENCY_STRIDE_LEN=$LATENCY_STRIDE_LEN_VALUE"
-    "EXTRA_NVBW_ARGS=$EXTRA_NVBW_ARGS_VALUE"
-    "SKIP_VERIFICATION=$SKIP_VERIFICATION"
-    "VERBOSE_NVBW=$VERBOSE_NVBW"
-    "SAMPLE_INTERVAL=$SAMPLE_INTERVAL"
-    "NVIDIA_QUERY_INTERVAL=$NVIDIA_QUERY_INTERVAL"
-    "NVIDIA_DMON_INTERVAL=$NVIDIA_DMON_INTERVAL"
-    "PCM_TOOLS=$PCM_TOOLS"
-    "INCLUDE_NVIDIA_QUERY=$INCLUDE_NVIDIA_QUERY"
-    "INCLUDE_NVIDIA_DMON=$INCLUDE_NVIDIA_DMON"
-    "INCLUDE_NVIDIA_PMON=$INCLUDE_NVIDIA_PMON"
-    "INCLUDE_NVIDIA_APPS=$INCLUDE_NVIDIA_APPS"
-  )
+        run_extra_nvbw_args="${EXTRA_NVBW_ARGS_VALUE:+$EXTRA_NVBW_ARGS_VALUE }--ptrChaseLoadBytes $ptr_chase_load_bytes"
 
-  for attempt in $(seq 1 "$RETRIES"); do
-    suffix=""
-    if (( attempt > 1 )); then
-      suffix="_retry${attempt}"
-    fi
-    outdir="$OUTROOT/buffer_${b}MiB${suffix}"
+        common_env=(
+            "NVBANDWIDTH_BIN=$NVBANDWIDTH_BIN"
+            "TESTCASE=$TESTCASE"
+            "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES_VALUE"
+            "NUMA_NODE=$NUMA_NODE_VALUE"
+            "CPU_BIND=$CPU_BIND_VALUE"
+            "TEST_SAMPLES=$TEST_SAMPLES_VALUE"
+            "HOST_READ_PARALLELISM=$HOST_READ_PARALLELISM_VALUE"
+            "LATENCY_STRIDE_LEN=$LATENCY_STRIDE_LEN_VALUE"
+            "EXTRA_NVBW_ARGS=$run_extra_nvbw_args"
+            "SKIP_VERIFICATION=$SKIP_VERIFICATION"
+            "VERBOSE_NVBW=$VERBOSE_NVBW"
+            "SAMPLE_INTERVAL=$SAMPLE_INTERVAL"
+            "NVIDIA_QUERY_INTERVAL=$NVIDIA_QUERY_INTERVAL"
+            "NVIDIA_DMON_INTERVAL=$NVIDIA_DMON_INTERVAL"
+            "PCM_TOOLS=$PCM_TOOLS"
+            "INCLUDE_NVIDIA_QUERY=$INCLUDE_NVIDIA_QUERY"
+            "INCLUDE_NVIDIA_DMON=$INCLUDE_NVIDIA_DMON"
+            "INCLUDE_NVIDIA_PMON=$INCLUDE_NVIDIA_PMON"
+            "INCLUDE_NVIDIA_APPS=$INCLUDE_NVIDIA_APPS"
+        )
 
-    echo
-    echo "===== BUFFER_SIZE=${b} MiB attempt=${attempt}/${RETRIES} -> ${outdir} ====="
-    echo "  ${loop_env[*]}"
-    echo "  SAMPLE_INTERVAL=$SAMPLE_INTERVAL NVIDIA_DMON_INTERVAL=$NVIDIA_DMON_INTERVAL PCM_TOOLS=$PCM_TOOLS"
+        for attempt in $(seq 1 "$RETRIES"); do
+            suffix=""
+            if (( attempt > 1 )); then
+                suffix="_retry${attempt}"
+            fi
+            outdir="$OUTROOT/buffer_${b}MiB_ptrload_${ptr_chase_load_bytes}B${suffix}"
 
-    set +e
-    env OUTDIR="$outdir" BUFFER_SIZE="$b" "${common_env[@]}" "${loop_env[@]}" "${collect_cmd[@]}" 2>&1 | tee "$outdir.driver.log"
-    rc=${PIPESTATUS[0]}
-    set -e
+            echo
+            echo "===== PTR_CHASE_LOAD_BYTES=${ptr_chase_load_bytes} BUFFER_SIZE=${b} MiB attempt=${attempt}/${RETRIES} -> ${outdir} ====="
+            echo "  ${loop_env[*]}"
+            echo "  EXTRA_NVBW_ARGS=$run_extra_nvbw_args"
+            echo "  SAMPLE_INTERVAL=$SAMPLE_INTERVAL NVIDIA_DMON_INTERVAL=$NVIDIA_DMON_INTERVAL PCM_TOOLS=$PCM_TOOLS"
 
-    if [[ "$rc" -eq 0 ]]; then
-      echo "BUFFER_SIZE=${b} status=ok attempt=${attempt} outdir=${outdir} ${loop_env[*]}" | tee -a "$OUTROOT/sweep.info"
-      ok=1
-      break
-    fi
+            set +e
+            env OUTDIR="$outdir" BUFFER_SIZE="$b" "${common_env[@]}" "${loop_env[@]}" "${collect_cmd[@]}" 2>&1 | tee "$outdir/$DRIVER_LOG_BASENAME"
+            rc=${PIPESTATUS[0]}
+            set -e
 
-    echo "BUFFER_SIZE=${b} status=failed attempt=${attempt} rc=${rc} outdir=${outdir} ${loop_env[*]}" | tee -a "$OUTROOT/sweep.info"
-  done
+            if [[ "$rc" -eq 0 ]]; then
+                echo "PTR_CHASE_LOAD_BYTES=${ptr_chase_load_bytes} BUFFER_SIZE=${b} status=ok attempt=${attempt} outdir=${outdir} ${loop_env[*]}" | tee -a "$SWEEP_INFO_FILE"
+                ok=1
+                break
+            fi
 
-  if [[ "$ok" -ne 1 ]]; then
-    failed=1
-  fi
+            echo "PTR_CHASE_LOAD_BYTES=${ptr_chase_load_bytes} BUFFER_SIZE=${b} status=failed attempt=${attempt} rc=${rc} outdir=${outdir} ${loop_env[*]}" | tee -a "$SWEEP_INFO_FILE"
+        done
+
+        if [[ "$ok" -ne 1 ]]; then
+            failed=1
+        fi
+    done
 done
 
 {
   echo "end_time=$(date --iso-8601=seconds)"
   echo "failed=$failed"
-} | tee -a "$OUTROOT/sweep.info"
+} | tee -a "$SWEEP_INFO_FILE"
 
 summary_csv="$OUTROOT/intel_pcm_summary.csv"
 summary_md="$OUTROOT/intel_pcm_summary.md"
@@ -205,7 +242,7 @@ summary_md="$OUTROOT/intel_pcm_summary.md"
 #   - PCIe bandwidth from pcm-pcie.csv PCIe Rd/Wr bytes per second
 #   - Optional GPU PCIe telemetry from nvidia-smi dmon rxpci/txpci
 # shellcheck disable=SC2086
-python3 - "$OUTROOT" "$TESTCASE" $BUFFER_SIZES <<'PY'
+python3 - "$OUTROOT" "$TESTCASE" "$PTR_CHASE_LOAD_BYTES_LIST" $BUFFER_SIZES <<'PY'
 from collections import defaultdict
 from pathlib import Path
 import csv
@@ -216,7 +253,8 @@ import sys
 
 root = Path(sys.argv[1])
 testcase = sys.argv[2]
-buffers = [int(x) for x in sys.argv[3:]]
+ptr_chase_load_bytes_values = [int(x) for x in sys.argv[3].split()]
+buffers = [int(x) for x in sys.argv[4:]]
 
 
 def parse_float(value):
@@ -276,12 +314,12 @@ def retry_order(path):
     return 1
 
 
-def dirs_for_buffer(buffer_mib):
+def dirs_for_combo(buffer_mib, ptr_chase_load_bytes):
     candidates = []
     for path in root.iterdir() if root.exists() else []:
         if not path.is_dir():
             continue
-        if path.name == f'buffer_{buffer_mib}MiB' or re.match(rf'^buffer_{buffer_mib}MiB_retry\d+$', path.name):
+        if path.name == f'buffer_{buffer_mib}MiB_ptrload_{ptr_chase_load_bytes}B' or re.match(rf'^buffer_{buffer_mib}MiB_ptrload_{ptr_chase_load_bytes}B_retry\d+$', path.name):
             if (path / 'summary.txt').is_file() or (path / 'nvbandwidth.out').is_file() or (path / 'run.info').is_file():
                 candidates.append(path)
     return sorted(candidates, key=lambda p: (retry_order(p), p.name))
@@ -408,81 +446,86 @@ def load_nvidia_dmon(outdir):
 
 
 rows = []
-for buffer_mib in buffers:
-    candidates = dirs_for_buffer(buffer_mib)
-    row = {
-        'buffer_MiB': buffer_mib,
-        'status': 'missing',
-        'result_dir': '',
-    }
-    if not candidates:
+for ptr_chase_load_bytes in ptr_chase_load_bytes_values:
+    for buffer_mib in buffers:
+        candidates = dirs_for_combo(buffer_mib, ptr_chase_load_bytes)
+        row = {
+            'ptr_chase_load_bytes': ptr_chase_load_bytes,
+            'buffer_MiB': buffer_mib,
+            'status': 'missing',
+            'result_dir': '',
+        }
+        if not candidates:
+            rows.append(row)
+            continue
+
+        outdir = candidates[-1]
+        info = run_info_for(outdir)
+        nvbw_rc = info.get('nvbandwidth_rc') or info.get('workload_rc') or ''
+        row.update({
+            'status': 'ok' if nvbw_rc in {'', '0'} else f'rc={nvbw_rc}',
+            'result_dir': str(outdir),
+            'nvbandwidth_rc': nvbw_rc,
+            'loop_count': info.get('loop_count', ''),
+        })
+
+        nvbw_sum = parse_nvbandwidth_sum(outdir)
+        if nvbw_sum is not None:
+            row['nvbandwidth_SUM_GBps'] = f'{nvbw_sum:.3f}'
+
+        memory, memory_samples = load_pcm_memory(outdir)
+        sys_mem_rd = stats(memory.get('System.Read', []))
+        sys_mem_wr = stats(memory.get('System.Write', []))
+        sys_mem_total = stats(memory.get('System.Memory', []))
+        numa_node = info.get('numa_node', '')
+        target_prefix = f'SKT{numa_node}' if numa_node != '' else ''
+        target_mem_rd = stats(memory.get(f'{target_prefix}.Mem Read (MB/s)', [])) if target_prefix else None
+
+        row.update({
+            'system_mem_read_median_GBps': stval(sys_mem_rd, 'median'),
+            'system_mem_read_p95_GBps': stval(sys_mem_rd, 'p95'),
+            'system_mem_read_max_GBps': stval(sys_mem_rd, 'max'),
+            'system_mem_write_median_GBps': stval(sys_mem_wr, 'median'),
+            'system_mem_total_median_GBps': stval(sys_mem_total, 'median'),
+            'target_socket_mem_read_median_GBps': stval(target_mem_rd, 'median'),
+            'pcm_memory_samples': memory_samples,
+        })
+
+        pcie, pcie_samples = load_pcm_pcie(outdir)
+        pcie_rd = stats(pcie.get('PCIe Rd (B)', []))
+        pcie_wr = stats(pcie.get('PCIe Wr (B)', []))
+        pcie_total = stats(pcie.get('PCIe Total (B)', []))
+        row.update({
+            'system_pcie_read_median_GBps': stval(pcie_rd, 'median'),
+            'system_pcie_read_p95_GBps': stval(pcie_rd, 'p95'),
+            'system_pcie_read_max_GBps': stval(pcie_rd, 'max'),
+            'system_pcie_write_median_GBps': stval(pcie_wr, 'median'),
+            'system_pcie_total_median_GBps': stval(pcie_total, 'median'),
+            'system_pcie_total_p95_GBps': stval(pcie_total, 'p95'),
+            'pcm_pcie_samples': pcie_samples,
+        })
+
+        dmon, dmon_rows = load_nvidia_dmon(outdir)
+        dmon_rx = stats(dmon.get('rxpci', []))
+        dmon_tx = stats(dmon.get('txpci', []))
+        dmon_total = stats(dmon.get('pcie_total', []))
+        row.update({
+            'nvidia_rxpcie_median_GBps': stval(dmon_rx, 'median'),
+            'nvidia_rxpcie_p95_GBps': stval(dmon_rx, 'p95'),
+            'nvidia_txpcie_median_GBps': stval(dmon_tx, 'median'),
+            'nvidia_txpcie_p95_GBps': stval(dmon_tx, 'p95'),
+            'nvidia_pcie_total_median_GBps': stval(dmon_total, 'median'),
+            'nvidia_pcie_total_p95_GBps': stval(dmon_total, 'p95'),
+            'nvidia_dmon_rows': dmon_rows,
+        })
+
         rows.append(row)
-        continue
-
-    outdir = candidates[-1]
-    info = run_info_for(outdir)
-    nvbw_rc = info.get('nvbandwidth_rc') or info.get('workload_rc') or ''
-    row.update({
-        'status': 'ok' if nvbw_rc in {'', '0'} else f'rc={nvbw_rc}',
-        'result_dir': str(outdir),
-        'nvbandwidth_rc': nvbw_rc,
-    })
-
-    nvbw_sum = parse_nvbandwidth_sum(outdir)
-    if nvbw_sum is not None:
-        row['nvbandwidth_SUM_GBps'] = f'{nvbw_sum:.3f}'
-
-    memory, memory_samples = load_pcm_memory(outdir)
-    sys_mem_rd = stats(memory.get('System.Read', []))
-    sys_mem_wr = stats(memory.get('System.Write', []))
-    sys_mem_total = stats(memory.get('System.Memory', []))
-    numa_node = info.get('numa_node', '')
-    target_prefix = f'SKT{numa_node}' if numa_node != '' else ''
-    target_mem_rd = stats(memory.get(f'{target_prefix}.Mem Read (MB/s)', [])) if target_prefix else None
-
-    row.update({
-        'system_mem_read_median_GBps': stval(sys_mem_rd, 'median'),
-        'system_mem_read_p95_GBps': stval(sys_mem_rd, 'p95'),
-        'system_mem_read_max_GBps': stval(sys_mem_rd, 'max'),
-        'system_mem_write_median_GBps': stval(sys_mem_wr, 'median'),
-        'system_mem_total_median_GBps': stval(sys_mem_total, 'median'),
-        'target_socket_mem_read_median_GBps': stval(target_mem_rd, 'median'),
-        'pcm_memory_samples': memory_samples,
-    })
-
-    pcie, pcie_samples = load_pcm_pcie(outdir)
-    pcie_rd = stats(pcie.get('PCIe Rd (B)', []))
-    pcie_wr = stats(pcie.get('PCIe Wr (B)', []))
-    pcie_total = stats(pcie.get('PCIe Total (B)', []))
-    row.update({
-        'system_pcie_read_median_GBps': stval(pcie_rd, 'median'),
-        'system_pcie_read_p95_GBps': stval(pcie_rd, 'p95'),
-        'system_pcie_read_max_GBps': stval(pcie_rd, 'max'),
-        'system_pcie_write_median_GBps': stval(pcie_wr, 'median'),
-        'system_pcie_total_median_GBps': stval(pcie_total, 'median'),
-        'system_pcie_total_p95_GBps': stval(pcie_total, 'p95'),
-        'pcm_pcie_samples': pcie_samples,
-    })
-
-    dmon, dmon_rows = load_nvidia_dmon(outdir)
-    dmon_rx = stats(dmon.get('rxpci', []))
-    dmon_tx = stats(dmon.get('txpci', []))
-    dmon_total = stats(dmon.get('pcie_total', []))
-    row.update({
-        'nvidia_rxpcie_median_GBps': stval(dmon_rx, 'median'),
-        'nvidia_rxpcie_p95_GBps': stval(dmon_rx, 'p95'),
-        'nvidia_txpcie_median_GBps': stval(dmon_tx, 'median'),
-        'nvidia_txpcie_p95_GBps': stval(dmon_tx, 'p95'),
-        'nvidia_pcie_total_median_GBps': stval(dmon_total, 'median'),
-        'nvidia_pcie_total_p95_GBps': stval(dmon_total, 'p95'),
-        'nvidia_dmon_rows': dmon_rows,
-    })
-
-    rows.append(row)
 
 fieldnames = [
+    'ptr_chase_load_bytes',
     'buffer_MiB',
     'status',
+    'loop_count',
     'nvbandwidth_SUM_GBps',
     'system_mem_read_median_GBps',
     'system_mem_read_p95_GBps',
@@ -529,13 +572,13 @@ md_lines = [
     '- `System PCIe Rd` comes from `pcm-pcie.csv` / `PCIe Rd (B)`.',
     '- `NVIDIA rx+tx` comes from optional `nvidia-smi dmon` telemetry and may be blank if disabled or unsupported.',
     '',
-    '| Buffer MiB | Status | nvbandwidth SUM | System Mem Rd median | System Mem Rd p95 | System PCIe Rd median | System PCIe Rd p95 | NVIDIA rx+tx median | Samples mem/pcie | Result dir |',
-    '| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
+    '| Ptr load bytes | Buffer MiB | LoopCount | Status | nvbandwidth SUM | System Mem Rd median | System Mem Rd p95 | System PCIe Rd median | System PCIe Rd p95 | NVIDIA rx+tx median | Samples mem/pcie | Result dir |',
+    '| ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
 ]
 for row in rows:
     samples = f"{cell(row, 'pcm_memory_samples')}/{cell(row, 'pcm_pcie_samples')}"
     md_lines.append(
-        f"| {cell(row, 'buffer_MiB')} | {cell(row, 'status')} | {cell(row, 'nvbandwidth_SUM_GBps')} | "
+        f"| {cell(row, 'ptr_chase_load_bytes')} | {cell(row, 'buffer_MiB')} | {cell(row, 'loop_count')} | {cell(row, 'status')} | {cell(row, 'nvbandwidth_SUM_GBps')} | "
         f"{cell(row, 'system_mem_read_median_GBps')} | {cell(row, 'system_mem_read_p95_GBps')} | "
         f"{cell(row, 'system_pcie_read_median_GBps')} | {cell(row, 'system_pcie_read_p95_GBps')} | "
         f"{cell(row, 'nvidia_pcie_total_median_GBps')} | {samples} | {cell(row, 'result_dir')} |"

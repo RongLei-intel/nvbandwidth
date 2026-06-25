@@ -367,13 +367,47 @@ __device__ __forceinline__ struct LatencyNode *loadNextBypassGpuCache(const stru
     return reinterpret_cast<struct LatencyNode *>(next);
 }
 
-__global__ void ptrChasingBandwidthKernel(struct LatencyNode *data, size_t nPtrs, unsigned long long accessesPerChain, unsigned long long launchSeed) {
+__device__ __forceinline__ PtrChaseNode16 *loadNextBypassGpuCache(const PtrChaseNode16 *p) {
+    unsigned int nextLo;
+    unsigned int nextHi;
+    unsigned int payloadLo;
+    unsigned int payloadHi;
+    asm volatile ("ld.volatile.global.v4.u32 {%0,%1,%2,%3}, [%4];"
+                  : "=r"(nextLo), "=r"(nextHi), "=r"(payloadLo), "=r"(payloadHi)
+                  : "l"(reinterpret_cast<unsigned long long>(p))
+                  : "memory");
+    asm volatile ("" :: "r"(payloadLo), "r"(payloadHi));
+    unsigned long long next = static_cast<unsigned long long>(nextLo) |
+        (static_cast<unsigned long long>(nextHi) << 32);
+    return reinterpret_cast<PtrChaseNode16 *>(next);
+}
+
+__device__ __forceinline__ PtrChaseNode32 *loadNextBypassGpuCache(const PtrChaseNode32 *p) {
+    unsigned long long next;
+    unsigned long long payload0;
+    unsigned long long payload1;
+    unsigned long long payload2;
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000
+    asm volatile ("ld.global.v4.u64 {%0,%1,%2,%3}, [%4];"
+                  : "=l"(next), "=l"(payload0), "=l"(payload1), "=l"(payload2)
+                  : "l"(reinterpret_cast<unsigned long long>(p))
+                  : "memory");
+    asm volatile ("" :: "l"(payload0), "l"(payload1), "l"(payload2));
+#else
+    PtrChaseNode32 value = *p;
+    next = reinterpret_cast<unsigned long long>(value.next);
+#endif
+    return reinterpret_cast<PtrChaseNode32 *>(next);
+}
+
+template <typename NodeT>
+__global__ void ptrChasingBandwidthKernel(NodeT *data, size_t nPtrs, unsigned long long accessesPerChain, unsigned long long launchSeed) {
     const unsigned long long totalChains = gridDim.x * blockDim.x;
     const unsigned long long smChainId =
         (static_cast<unsigned long long>(blockIdx.x) << 32) |
         static_cast<unsigned long long>(threadIdx.x);
     const unsigned long long startIdx = mix64(smChainId ^ launchSeed ^ totalChains) % nPtrs;
-    struct LatencyNode *p = data + startIdx;
+    NodeT *p = data + startIdx;
 
     for (unsigned long long i = 0; i < accessesPerChain; ++i) {
         p = loadNextBypassGpuCache(p);
@@ -455,8 +489,9 @@ double latencyPtrChaseKernel(const int srcId, void* data, size_t size, unsigned 
     return finalLatencyPerAccessNs;
 }
 
-double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigned long long loopCount, unsigned int chainsPerSm) {
-    const size_t nPtrs = size / sizeof(struct LatencyNode);
+template <typename NodeT>
+double bandwidthPtrChaseKernelForNode(const int srcId, void* data, size_t size, unsigned long long loopCount, unsigned int chainsPerSm, unsigned int loadBytes) {
+    const size_t nPtrs = size / sizeof(NodeT);
     if (nPtrs == 0) {
         return 0.0;
     }
@@ -493,14 +528,14 @@ double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigne
     for (unsigned int n = 0; n < averageLoopCount; n++) {
         if (warmupCount > 0) {
             const unsigned long long warmupSeed = 0x9e3779b97f4a7c15ULL ^ (static_cast<unsigned long long>(n) << 32);
-            ptrChasingBandwidthKernel<<<blockCount, threadsPerBlock, 0, stream>>>((struct LatencyNode*)data, nPtrs, baseAccessesPerChain * warmupCount, warmupSeed);
+            ptrChasingBandwidthKernel<NodeT><<<blockCount, threadsPerBlock, 0, stream>>>((NodeT*)data, nPtrs, baseAccessesPerChain * warmupCount, warmupSeed);
             CUDA_ASSERT(cudaGetLastError());
             CU_ASSERT(cuStreamSynchronize(stream));
         }
 
         CUDA_ASSERT(cudaEventRecord(start, stream));
         const unsigned long long measuredSeed = 0xd1b54a32d192ed03ULL ^ (static_cast<unsigned long long>(n) << 32);
-        ptrChasingBandwidthKernel<<<blockCount, threadsPerBlock, 0, stream>>>((struct LatencyNode*)data, nPtrs, measuredAccessesPerChain, measuredSeed);
+        ptrChasingBandwidthKernel<NodeT><<<blockCount, threadsPerBlock, 0, stream>>>((NodeT*)data, nPtrs, measuredAccessesPerChain, measuredSeed);
         CUDA_ASSERT(cudaEventRecord(end, stream));
         CUDA_ASSERT(cudaGetLastError());
         CU_ASSERT(cuStreamSynchronize(stream));
@@ -508,13 +543,13 @@ double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigne
         float elapsedMs = 0.0f;
         CUDA_ASSERT(cudaEventElapsedTime(&elapsedMs, start, end));
         const double elapsedUs = static_cast<double>(elapsedMs) * 1000.0;
-        const double bytesRead = static_cast<double>(measuredAccesses) * sizeof(struct LatencyNode);
+        const double bytesRead = static_cast<double>(measuredAccesses) * loadBytes;
         const double bandwidth = (bytesRead * 1000.0 * 1000.0) / elapsedUs;
         bandwidthStats(bandwidth);
 
         VERBOSE << "\tSample " << n << ": pointer-chase host reads: "
                 << std::fixed << std::setprecision(2) << bandwidth * 1e-9 << " GB/s"
-            << " (" << totalChains << " chains, " << measuredAccessesPerChain << " accesses/chain, randomized start nodes, ld.global.cv)\n";
+            << " (" << totalChains << " chains, " << measuredAccessesPerChain << " accesses/chain, randomized start nodes, " << loadBytes << "B load)\n";
     }
 
     if (signalMarkers && amdProfSignalEndEnabled()) {
@@ -526,6 +561,33 @@ double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigne
     CU_ASSERT(cuStreamDestroy(stream));
 
     return bandwidthStats.returnAppropriateMetric() * 1e-9;
+}
+
+double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigned long long loopCount, unsigned int chainsPerSm, unsigned int loadBytes) {
+    CUcontext srcCtx;
+    CUdevice dev;
+    CU_ASSERT(cuDevicePrimaryCtxRetain(&srcCtx, srcId));
+    CU_ASSERT(cuCtxSetCurrent(srcCtx));
+    CU_ASSERT(cuCtxGetDevice(&dev));
+
+    if (loadBytes == 32) {
+        int major;
+        CU_ASSERT(cuDeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev));
+        if (major < 10) {
+            throw std::string("ptrChaseLoadBytes=32 requires compute capability 10.0 or newer for single-instruction 256-bit global load");
+        }
+    }
+
+    switch (loadBytes) {
+        case 8:
+            return bandwidthPtrChaseKernelForNode<LatencyNode>(srcId, data, size, loopCount, chainsPerSm, loadBytes);
+        case 16:
+            return bandwidthPtrChaseKernelForNode<PtrChaseNode16>(srcId, data, size, loopCount, chainsPerSm, loadBytes);
+        case 32:
+            return bandwidthPtrChaseKernelForNode<PtrChaseNode32>(srcId, data, size, loopCount, chainsPerSm, loadBytes);
+        default:
+            throw std::string("Unsupported ptrChaseLoadBytes value");
+    }
 }
 
 template <typename CopyT>
@@ -889,7 +951,9 @@ void preloadKernels(int deviceCount) {
         preloadHostReadKernels<128>(&unused);
         preloadHostReadKernels<256>(&unused);
         cudaFuncGetAttributes(&unused, &ptrChasingKernel);
-        cudaFuncGetAttributes(&unused, &ptrChasingBandwidthKernel);
+        cudaFuncGetAttributes(&unused, &ptrChasingBandwidthKernel<LatencyNode>);
+        cudaFuncGetAttributes(&unused, &ptrChasingBandwidthKernel<PtrChaseNode16>);
+        cudaFuncGetAttributes(&unused, &ptrChasingBandwidthKernel<PtrChaseNode32>);
         cudaFuncGetAttributes(&unused, &multicastCopyKernel);
         cudaFuncGetAttributes(&unused, &memsetKernelDevice);
         cudaFuncGetAttributes(&unused, &memcmpKernelDevice);

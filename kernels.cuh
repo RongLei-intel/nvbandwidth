@@ -32,7 +32,7 @@ CUresult spinKernel(volatile int *latch, CUstream stream, unsigned long long tim
 CUresult spinKernelMultistage(volatile int *latch1, volatile int *latch2, CUstream stream, unsigned long long timeoutMs = DEFAULT_SPIN_KERNEL_TIMEOUT_MS);
 void preloadKernels(int deviceCount);
 double latencyPtrChaseKernel(const int srcId, void* data, size_t size, unsigned long long latencyMemAccessCnt, unsigned smCount);
-double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigned long long loopCount, unsigned int chainsPerSm);
+double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigned long long loopCount, unsigned int chainsPerSm, unsigned int loadBytes);
 CUresult memsetKernel(CUstream stream, CUdeviceptr buffer, CUdeviceptr pattern, unsigned long long num_elements, unsigned int num_pattern_elements);
 CUresult memcmpKernel(CUstream stream, CUdeviceptr buffer, CUdeviceptr pattern, unsigned long long num_elements, unsigned int num_pattern_elements, CUdeviceptr errorFlag);
 CUresult multicastMemcmpKernel(CUstream stream, CUdeviceptr buffer, CUdeviceptr pattern, unsigned long long num_elements, unsigned int num_pattern_elements, CUdeviceptr errorFlag);

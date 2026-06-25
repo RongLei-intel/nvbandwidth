@@ -32,9 +32,10 @@ set -euo pipefail
 # Sweep-specific tunables:
 #   BUFFER_SIZES="1 2 4 8 16 32 64 128"
 #   OUTROOT=<dir>                 sweep root dir; default timestamped
+#   RUN_LABEL=<name>              optional label added to OUTROOT and log filenames
 #   RETRIES=2                     attempts per buffer
 #   AUTO_LOOP_COUNT=1             default: choose loopCount from TARGET_TRANSFER_MIB / BUFFER_SIZE
-#   TARGET_TRANSFER_MIB=65536     target logical copied MiB per nvbandwidth sample before testSamples/warmup
+#   TARGET_TRANSFER_MIB=262144    target logical copied MiB per nvbandwidth sample before testSamples/warmup
 #   MIN_LOOP_COUNT=16             lower bound for auto/scaled loopCount
 #   MAX_LOOP_COUNT=131072         upper bound for auto/scaled loopCount
 #   LOOP_COUNT=<N>                explicit fixed loopCount for all buffers; overrides auto/scaled mode
@@ -49,9 +50,18 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 BUFFER_SIZES="${BUFFER_SIZES:-1 2 4 8 16 32 64 128 256 512 1024 2048}"
-OUTROOT="${OUTROOT:-intel_pcm_nvbw_t16_sweep_$(date +%Y%m%d_%H%M%S)}"
 RETRIES="${RETRIES:-2}"
 COLLECT_SCRIPT="${COLLECT_SCRIPT:-./collect_pcm_nvsmi_nvbw.sh}"
+RUN_LABEL="${RUN_LABEL:-}"
+
+if [[ -n "$RUN_LABEL" ]]; then
+    OUTROOT_DEFAULT="intel_pcm_nvbw_t16_${RUN_LABEL}_sweep_$(date +%Y%m%d_%H%M%S)"
+else
+    OUTROOT_DEFAULT="intel_pcm_nvbw_t16_sweep_$(date +%Y%m%d_%H%M%S)"
+fi
+OUTROOT="${OUTROOT:-$OUTROOT_DEFAULT}"
+SWEEP_INFO_FILE="$OUTROOT/sweep${RUN_LABEL:+_${RUN_LABEL}}.info"
+DRIVER_LOG_BASENAME="driver${RUN_LABEL:+_${RUN_LABEL}}.log"
 
 NVBANDWIDTH_BIN="${NVBANDWIDTH_BIN:-./nvbandwidth}"
 TESTCASE="${TESTCASE:-16}"
@@ -174,7 +184,7 @@ auto_loop_count() {
   echo "latency_stride_len=$LATENCY_STRIDE_LEN_VALUE"
   echo "extra_nvbw_args=$EXTRA_NVBW_ARGS_VALUE"
   echo "start_time=$(date --iso-8601=seconds)"
-} | tee "$OUTROOT/sweep.info"
+} | tee "$SWEEP_INFO_FILE"
 
 failed=0
 
@@ -234,17 +244,17 @@ for sm_copy_bytes in $SM_COPY_BYTES_LIST; do
             echo "  SAMPLE_INTERVAL=$SAMPLE_INTERVAL NVIDIA_DMON_INTERVAL=$NVIDIA_DMON_INTERVAL PCM_TOOLS=$PCM_TOOLS"
 
             set +e
-            env OUTDIR="$outdir" BUFFER_SIZE="$b" "${common_env[@]}" "${loop_env[@]}" "${collect_cmd[@]}" 2>&1 | tee "$outdir.driver.log"
+            env OUTDIR="$outdir" BUFFER_SIZE="$b" "${common_env[@]}" "${loop_env[@]}" "${collect_cmd[@]}" 2>&1 | tee "$outdir/$DRIVER_LOG_BASENAME"
             rc=${PIPESTATUS[0]}
             set -e
 
             if [[ "$rc" -eq 0 ]]; then
-                echo "SM_COPY_BYTES=${sm_copy_bytes} BUFFER_SIZE=${b} status=ok attempt=${attempt} outdir=${outdir} ${loop_env[*]}" | tee -a "$OUTROOT/sweep.info"
+                echo "SM_COPY_BYTES=${sm_copy_bytes} BUFFER_SIZE=${b} status=ok attempt=${attempt} outdir=${outdir} ${loop_env[*]}" | tee -a "$SWEEP_INFO_FILE"
                 ok=1
                 break
             fi
 
-            echo "SM_COPY_BYTES=${sm_copy_bytes} BUFFER_SIZE=${b} status=failed attempt=${attempt} rc=${rc} outdir=${outdir} ${loop_env[*]}" | tee -a "$OUTROOT/sweep.info"
+            echo "SM_COPY_BYTES=${sm_copy_bytes} BUFFER_SIZE=${b} status=failed attempt=${attempt} rc=${rc} outdir=${outdir} ${loop_env[*]}" | tee -a "$SWEEP_INFO_FILE"
         done
 
         if [[ "$ok" -ne 1 ]]; then
@@ -256,7 +266,7 @@ done
 {
   echo "end_time=$(date --iso-8601=seconds)"
   echo "failed=$failed"
-} | tee -a "$OUTROOT/sweep.info"
+} | tee -a "$SWEEP_INFO_FILE"
 
 summary_csv="$OUTROOT/intel_pcm_summary.csv"
 summary_md="$OUTROOT/intel_pcm_summary.md"

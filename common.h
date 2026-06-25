@@ -52,6 +52,7 @@ const unsigned int defaultLatencyStrideLen = 16; /* cacheLine size 128 Bytes, 16
 const unsigned int defaultHostReadParallelism = 256;
 const unsigned int defaultHostReadBytes = 16;
 const unsigned int defaultSmCopyBytes = 16;
+const unsigned int defaultPtrChaseLoadBytes = 8;
 const unsigned long latencyMemAccessCnt = 1000000; /* 1M total read accesses to gauge latency */
 extern int deviceCount;
 extern unsigned int averageLoopCount;
@@ -59,6 +60,7 @@ extern unsigned int latencyStrideLen;
 extern unsigned int hostReadParallelism;
 extern unsigned int hostReadBytes;
 extern unsigned int smCopyBytes;
+extern unsigned int ptrChaseLoadBytes;
 extern unsigned long long warmupCount;
 extern bool disableAffinity;
 extern bool skipVerification;
@@ -231,6 +233,18 @@ inline std::string getPaddedProcessId(int id) {
 
 struct LatencyNode {
     struct LatencyNode *next;
+};
+
+struct alignas(16) PtrChaseNode16 {
+    struct PtrChaseNode16 *next;
+    unsigned long long payload0;
+};
+
+struct alignas(32) PtrChaseNode32 {
+    struct PtrChaseNode32 *next;
+    unsigned long long payload0;
+    unsigned long long payload1;
+    unsigned long long payload2;
 };
 
 enum UnitType {
