@@ -35,6 +35,7 @@ unsigned int averageLoopCount;
 unsigned int latencyStrideLen;
 unsigned int hostReadParallelism;
 unsigned int hostReadBytes;
+unsigned int smCopyBytes;
 unsigned long long bufferSize;
 unsigned long long latencyBufferSize;
 unsigned long long loopCount;
@@ -215,6 +216,7 @@ int main(int argc, char **argv) {
         ("latencyStrideLen", opt::value<unsigned int>(&latencyStrideLen)->default_value(defaultLatencyStrideLen), "Latency pointer-chase stride in LatencyNode entries")
         ("hostReadParallelism", opt::value<unsigned int>(&hostReadParallelism)->default_value(defaultHostReadParallelism), "Number of independent pointer-chase chains per SM in host_device_bandwidth_sm. Supported values: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024")
         ("hostReadBytes", opt::value<unsigned int>(&hostReadBytes)->default_value(defaultHostReadBytes), "Logical host-buffer read granularity in bytes for the legacy host-read copy kernel. The pointer-chase host_device_bandwidth_sm always reads 8-byte pointers. Supported values: 8, 16, 32, 64, 128, 256")
+        ("smCopyBytes", opt::value<unsigned int>(&smCopyBytes)->default_value(defaultSmCopyBytes), "SM memcpy single-instruction load/store width in bytes. Supported values: 4, 8, 16, 32. Default 16 preserves the original uint4 vector access. 32 requires sm_100+.")
         ("list,l", "List available testcases")
         ("testcase,t", opt::value<std::vector<std::string>>(&testcasesToRun)->multitoken(), "Testcase(s) to run (by name or index)")
         ("testcasePrefixes,p", opt::value<std::vector<std::string>>(&testcasePrefixes)->multitoken(), "Testcase(s) to run (by prefix))")
@@ -307,6 +309,10 @@ int main(int argc, char **argv) {
     }
     if (!(hostReadBytes == 8 || hostReadBytes == 16 || hostReadBytes == 32 || hostReadBytes == 64 || hostReadBytes == 128 || hostReadBytes == 256)) {
         output->recordError("ERROR: Invalid hostReadBytes value. Supported values are 8, 16, 32, 64, 128, and 256.");
+        return 1;
+    }
+    if (!(smCopyBytes == 4 || smCopyBytes == 8 || smCopyBytes == 16 || smCopyBytes == 32)) {
+        output->recordError("ERROR: Invalid smCopyBytes value. Supported values are 4, 8, 16, and 32. 32 requires sm_100+.");
         return 1;
     }
     if (loopCount > UINT_MAX) {

@@ -69,58 +69,127 @@ static bool amdProfSignalEndEnabled() { return false; }
 static void signalAmdProfPcm(int, const char *) {}
 #endif
 
-__global__ void simpleCopyKernel(unsigned long long loopCount, uint4 *dst, uint4 *src) {
+struct __align__(32) SmCopy32 {
+    unsigned long long x;
+    unsigned long long y;
+    unsigned long long z;
+    unsigned long long w;
+};
+
+template <typename CopyT>
+__device__ __forceinline__ CopyT smCopyLoad(const CopyT *src) {
+    return *src;
+}
+
+template <typename CopyT>
+__device__ __forceinline__ void smCopyStore(CopyT *dst, const CopyT &value) {
+    *dst = value;
+}
+
+template <>
+__device__ __forceinline__ unsigned int smCopyLoad<unsigned int>(const unsigned int *src) {
+    return __ldcg(src);
+}
+
+template <>
+__device__ __forceinline__ void smCopyStore<unsigned int>(unsigned int *dst, const unsigned int &value) {
+    __stcg(dst, value);
+}
+
+template <>
+__device__ __forceinline__ unsigned long long smCopyLoad<unsigned long long>(const unsigned long long *src) {
+    return __ldcg(src);
+}
+
+template <>
+__device__ __forceinline__ void smCopyStore<unsigned long long>(unsigned long long *dst, const unsigned long long &value) {
+    __stcg(dst, value);
+}
+
+template <>
+__device__ __forceinline__ uint4 smCopyLoad<uint4>(const uint4 *src) {
+    return __ldcg(src);
+}
+
+template <>
+__device__ __forceinline__ void smCopyStore<uint4>(uint4 *dst, const uint4 &value) {
+    __stcg(dst, value);
+}
+
+template <>
+__device__ __forceinline__ SmCopy32 smCopyLoad<SmCopy32>(const SmCopy32 *src) {
+    SmCopy32 value;
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000
+    asm volatile ("ld.global.v4.u64 {%0,%1,%2,%3}, [%4];"
+                  : "=l"(value.x), "=l"(value.y), "=l"(value.z), "=l"(value.w)
+                  : "l"(src));
+#else
+    value = *src;
+#endif
+    return value;
+}
+
+template <>
+__device__ __forceinline__ void smCopyStore<SmCopy32>(SmCopy32 *dst, const SmCopy32 &value) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000
+    asm volatile ("st.global.v4.u64 [%0], {%1,%2,%3,%4};"
+                  :: "l"(dst), "l"(value.x), "l"(value.y), "l"(value.z), "l"(value.w));
+#else
+    *dst = value;
+#endif
+}
+
+template <typename CopyT>
+__global__ void simpleCopyKernel(unsigned long long loopCount, CopyT *dst, const CopyT *src) {
     for (unsigned int i = 0; i < loopCount; i++) {
         const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        size_t offset = idx * sizeof(uint4);
-        uint4* dst_uint4 = reinterpret_cast<uint4*>((char*)dst + offset);
-        uint4* src_uint4 = reinterpret_cast<uint4*>((char*)src + offset);
-        __stcg(dst_uint4, __ldcg(src_uint4));
+        smCopyStore(dst + idx, smCopyLoad(src + idx));
     }
 }
 
-__global__ void stridingMemcpyKernel(unsigned int totalThreadCount, unsigned long long loopCount, uint4* dst, uint4* src, size_t chunkSizeInElement) {
+template <typename CopyT>
+__global__ void stridingMemcpyKernel(unsigned int totalThreadCount, unsigned long long loopCount, CopyT* dst, const CopyT* src, size_t chunkSizeInElement) {
     unsigned long long from = blockDim.x * blockIdx.x + threadIdx.x;
     unsigned long long bigChunkSizeInElement = chunkSizeInElement / 12;
     dst += from;
     src += from;
-    uint4* dstBigEnd = dst + (bigChunkSizeInElement * 12) * totalThreadCount;
-    uint4* dstEnd = dst + chunkSizeInElement * totalThreadCount;
+    CopyT* dstBigEnd = dst + (bigChunkSizeInElement * 12) * totalThreadCount;
+    CopyT* dstEnd = dst + chunkSizeInElement * totalThreadCount;
 
     for (unsigned int i = 0; i < loopCount; i++) {
-        uint4* cdst = dst;
-        uint4* csrc = src;
+        CopyT* cdst = dst;
+        const CopyT* csrc = src;
 
         while (cdst < dstBigEnd) {
-            uint4 pipe_0 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_1 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_2 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_3 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_4 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_5 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_6 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_7 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_8 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_9 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_10 = *csrc; csrc += totalThreadCount;
-            uint4 pipe_11 = *csrc; csrc += totalThreadCount;
+            CopyT pipe_0 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_1 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_2 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_3 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_4 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_5 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_6 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_7 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_8 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_9 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_10 = smCopyLoad(csrc); csrc += totalThreadCount;
+            CopyT pipe_11 = smCopyLoad(csrc); csrc += totalThreadCount;
 
-            *cdst = pipe_0; cdst += totalThreadCount;
-            *cdst = pipe_1; cdst += totalThreadCount;
-            *cdst = pipe_2; cdst += totalThreadCount;
-            *cdst = pipe_3; cdst += totalThreadCount;
-            *cdst = pipe_4; cdst += totalThreadCount;
-            *cdst = pipe_5; cdst += totalThreadCount;
-            *cdst = pipe_6; cdst += totalThreadCount;
-            *cdst = pipe_7; cdst += totalThreadCount;
-            *cdst = pipe_8; cdst += totalThreadCount;
-            *cdst = pipe_9; cdst += totalThreadCount;
-            *cdst = pipe_10; cdst += totalThreadCount;
-            *cdst = pipe_11; cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_0); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_1); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_2); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_3); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_4); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_5); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_6); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_7); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_8); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_9); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_10); cdst += totalThreadCount;
+            smCopyStore(cdst, pipe_11); cdst += totalThreadCount;
         }
 
         while (cdst < dstEnd) {
-            *cdst = *csrc; cdst += totalThreadCount; csrc += totalThreadCount;
+            smCopyStore(cdst, smCopyLoad(csrc)); cdst += totalThreadCount; csrc += totalThreadCount;
         }
     }
 }
@@ -459,6 +528,34 @@ double bandwidthPtrChaseKernel(const int srcId, void* data, size_t size, unsigne
     return bandwidthStats.returnAppropriateMetric() * 1e-9;
 }
 
+template <typename CopyT>
+size_t launchCopyKernel(MemcpyDescriptor &desc, unsigned int totalThreadCount, int numSm) {
+    if (desc.copySize < (smallBufferThreshold * _MiB)) {
+        // Copy size is rounded down to the selected SM copy data type width.
+        unsigned int numElements = desc.copySize / sizeof(CopyT);
+        if (numElements == 0) {
+            return 0;
+        }
+        // We allow max 1024 threads per block, and then scale out the copy across multiple blocks.
+        dim3 block(std::min(numElements, static_cast<unsigned int>(1024)));
+        dim3 grid(numElements / block.x);
+        simpleCopyKernel<CopyT><<<grid, block, 0, desc.stream>>>(desc.loopCount, reinterpret_cast<CopyT *>(desc.dst), reinterpret_cast<const CopyT *>(desc.src));
+        return numElements * sizeof(CopyT);
+    }
+
+    // Adjust size to elements and truncate so each thread processes the same number of elements.
+    size_t sizeInElement = desc.copySize / sizeof(CopyT);
+    sizeInElement = totalThreadCount * (sizeInElement / totalThreadCount);
+
+    size_t chunkSizeInElement = sizeInElement / totalThreadCount;
+
+    dim3 gridDim(numSm, 1, 1);
+    dim3 blockDim(numThreadPerBlock, 1, 1);
+    stridingMemcpyKernel<CopyT><<<gridDim, blockDim, 0, desc.stream>>>(totalThreadCount, desc.loopCount, reinterpret_cast<CopyT *>(desc.dst), reinterpret_cast<const CopyT *>(desc.src), chunkSizeInElement);
+
+    return sizeInElement * sizeof(CopyT);
+}
+
 size_t copyKernel(MemcpyDescriptor &desc) {
     CUdevice dev;
     CUcontext ctx;
@@ -470,34 +567,23 @@ size_t copyKernel(MemcpyDescriptor &desc) {
     CU_ASSERT(cuDeviceGetAttribute(&numSm, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, dev));
     unsigned int totalThreadCount = numSm * numThreadPerBlock;
 
-    // If the user provided buffer size is samller than default buffer size,
-    // we use the simple copy kernel for our bandwidth test.
-    // This is done so that no trucation of the buffer size occurs.
-    // Please note that to achieve peak bandwidth, it is suggested to use the
-    // default buffer size, which in turn triggers the use of the optimized
-    // kernel.
-    if (desc.copySize < (smallBufferThreshold * _MiB)) {
-        // copy size is rounded down to 16 bytes
-        unsigned int numUint4 = desc.copySize / sizeof(uint4);
-        // we allow max 1024 threads per block, and then scale out the copy across multiple blocks
-        dim3 block(std::min(numUint4, static_cast<unsigned int>(1024)));
-        dim3 grid(numUint4/block.x);
-        simpleCopyKernel <<<grid, block, 0 , desc.stream>>> (desc.loopCount, (uint4 *)desc.dst, (uint4 *)desc.src);
-        return numUint4 * sizeof(uint4);
+    switch (smCopyBytes) {
+        case 4:
+            return launchCopyKernel<unsigned int>(desc, totalThreadCount, numSm);
+        case 8:
+            return launchCopyKernel<unsigned long long>(desc, totalThreadCount, numSm);
+        case 16:
+            return launchCopyKernel<uint4>(desc, totalThreadCount, numSm);
+        case 32:
+            int major;
+            CU_ASSERT(cuDeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev));
+            if (major < 10) {
+                throw std::string("smCopyBytes=32 requires compute capability 10.0 or newer for single-instruction 256-bit global load/store");
+            }
+            return launchCopyKernel<SmCopy32>(desc, totalThreadCount, numSm);
+        default:
+            throw std::string("Unsupported smCopyBytes value");
     }
-
-    // adjust size to elements (size is multiple of MB, so no truncation here)
-    size_t sizeInElement = desc.copySize / sizeof(uint4);
-    // this truncates the copy
-    sizeInElement = totalThreadCount * (sizeInElement / totalThreadCount);
-
-    size_t chunkSizeInElement = sizeInElement / totalThreadCount;
-
-    dim3 gridDim(numSm, 1, 1);
-    dim3 blockDim(numThreadPerBlock, 1, 1);
-    stridingMemcpyKernel<<<gridDim, blockDim, 0, desc.stream>>> (totalThreadCount, desc.loopCount, (uint4 *)desc.dst, (uint4 *)desc.src, chunkSizeInElement);
-
-    return sizeInElement * sizeof(uint4);
 }
 
 size_t copyKernelSplitWarp(MemcpyDescriptor &desc) {
@@ -563,6 +649,12 @@ void preloadHostReadKernels(cudaFuncAttributes *unused) {
     cudaFuncGetAttributes(unused, &stridingHostReadKernel<8, READ_BYTES>);
     cudaFuncGetAttributes(unused, &stridingHostReadKernel<16, READ_BYTES>);
     cudaFuncGetAttributes(unused, &stridingHostReadKernel<32, READ_BYTES>);
+}
+
+template <typename CopyT>
+void preloadCopyKernels(cudaFuncAttributes *unused) {
+    cudaFuncGetAttributes(unused, &simpleCopyKernel<CopyT>);
+    cudaFuncGetAttributes(unused, &stridingMemcpyKernel<CopyT>);
 }
 
 size_t multicastCopy(CUdeviceptr dstBuffer, CUdeviceptr srcBuffer, size_t size, CUstream stream, unsigned long long loopCount) {
@@ -783,10 +875,12 @@ void preloadKernels(int deviceCount) {
 #endif
     for (int iDev = startDevice; iDev < endDevice; iDev++) {
         cudaSetDevice(iDev);
-        cudaFuncGetAttributes(&unused, &stridingMemcpyKernel);
+        preloadCopyKernels<unsigned int>(&unused);
+        preloadCopyKernels<unsigned long long>(&unused);
+        preloadCopyKernels<uint4>(&unused);
+        preloadCopyKernels<SmCopy32>(&unused);
         cudaFuncGetAttributes(&unused, &spinKernelDevice);
         cudaFuncGetAttributes(&unused, &spinKernelDeviceMultistage);
-        cudaFuncGetAttributes(&unused, &simpleCopyKernel);
         cudaFuncGetAttributes(&unused, &splitWarpCopyKernel);
         preloadHostReadKernels<8>(&unused);
         preloadHostReadKernels<16>(&unused);

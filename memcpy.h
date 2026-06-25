@@ -189,6 +189,8 @@ class MemcpyInitiatorMulticastWrite : public MemcpyInitiator {
 class MemcpyInitiatorSMSplitWarp : public MemcpyInitiatorSM {
  public:
     size_t memcpyFunc(MemcpyDescriptor &memcpyDescriptor);
+   // Split-warp copy kernels still use fixed uint4 elements.
+   size_t getAdjustedCopySize(size_t size, CUstream stream);
     // Fill buffer with a pattern
     void memsetPattern(MemcpyDispatchInfo &info) const;
     // Compare buffer with a pattern

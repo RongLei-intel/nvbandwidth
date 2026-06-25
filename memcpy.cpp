@@ -595,18 +595,29 @@ size_t MemcpyInitiatorSM::getAdjustedCopySize(size_t size, CUstream stream) {
     int numSm;
     CU_ASSERT(cuDeviceGetAttribute(&numSm, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, dev));
     unsigned int totalThreadCount = numSm * numThreadPerBlock;
+    size_t copyElementSize;
+    switch (smCopyBytes) {
+        case 4:
+        case 8:
+        case 16:
+        case 32:
+            copyElementSize = smCopyBytes;
+            break;
+        default:
+            throw std::string("Unsupported smCopyBytes value");
+    }
     // We want to calculate the exact copy sizes that will be
     // used by the copy kernels.
     if (size < (smallBufferThreshold * _MiB)) {
-        // copy size is rounded down to 16 bytes
-        int numUint4 = size / sizeof(uint4);
-        return numUint4 * sizeof(uint4);
+        // Copy size is rounded down to the selected SM copy data type width.
+        int numElements = size / copyElementSize;
+        return numElements * copyElementSize;
     }
     // adjust size to elements (size is multiple of MB, so no truncation here)
-    size_t sizeInElement = size / sizeof(uint4);
+    size_t sizeInElement = size / copyElementSize;
     // this truncates the copy
     sizeInElement = totalThreadCount * (sizeInElement / totalThreadCount);
-    return sizeInElement * sizeof(uint4);
+    return sizeInElement * copyElementSize;
 }
 
 size_t MemcpyInitiatorCE::memcpyFunc(MemcpyDescriptor &desc) {
@@ -633,6 +644,12 @@ size_t MemcpyInitiatorMulticastWrite::getAdjustedCopySize(size_t size, CUstream 
 
 size_t MemcpyInitiatorSMSplitWarp::memcpyFunc(MemcpyDescriptor &desc) {
     return copyKernelSplitWarp(desc);
+}
+
+size_t MemcpyInitiatorSMSplitWarp::getAdjustedCopySize(size_t size, CUstream stream) {
+    // Split-warp copy kernels alternate directions across warps and currently use fixed uint4 elements.
+    int numUint4 = size / sizeof(uint4);
+    return numUint4 * sizeof(uint4);
 }
 
 size_t MemcpyInitiatorSMHostRead::memcpyFunc(MemcpyDescriptor &desc) {

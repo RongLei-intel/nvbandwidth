@@ -114,6 +114,7 @@ for buffer_mib in "${BUFFER_LIST[@]}"; do
             "$NVBANDWIDTH_BIN" -t "$TESTCASE"
             --latencyBufferSize "$buffer_mib"
             --latencyStrideLen "$stride"
+            --flushHostCache
         )
 
         if [[ -n "$EXTRA_ARGS" ]]; then
