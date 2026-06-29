@@ -35,6 +35,7 @@ set -euo pipefail
 #   COLLECT_PCIE=0                 set 1 to add --collect-pcie, in addition to pcie metric
 #   COLLECT_XGMI=0                 set 1 to add --collect-xgmi
 #   HTML_REPORT=0                  set 1 to add --html
+#   MIN_TIMESERIES_SAMPLES=1       fail collection when parsed report-timeseries sample count is below this value (set 0 to disable)
 #   OUTDIR=<dir>                   output directory
 
 AMDPROF_PCM="${AMDPROF_PCM:-AMDuProfPcm}"
@@ -63,6 +64,7 @@ COLLECT_POWER="${COLLECT_POWER:-0}"
 COLLECT_PCIE="${COLLECT_PCIE:-0}"
 COLLECT_XGMI="${COLLECT_XGMI:-0}"
 HTML_REPORT="${HTML_REPORT:-0}"
+MIN_TIMESERIES_SAMPLES="${MIN_TIMESERIES_SAMPLES:-1}"
 OUTDIR="${OUTDIR:-amdprof_nvbw_t${TESTCASE}_membw_$(date +%Y%m%d_%H%M%S)}"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -81,6 +83,11 @@ fi
 if [[ ! -x ./nvbandwidth ]]; then
   echo "ERROR: ./nvbandwidth not found or not executable in $SCRIPT_DIR" >&2
   exit 1
+fi
+
+if [[ "$PCM_WAIT_FOR_SIGNAL" != "0" && "$TESTCASE" != "33" ]]; then
+    echo "WARN: PCM_WAIT_FOR_SIGNAL=$PCM_WAIT_FOR_SIGNAL with TESTCASE=$TESTCASE may hang (no AMDuProf signal markers emitted). Disabling wait-for-signal." >&2
+    PCM_WAIT_FOR_SIGNAL=0
 fi
 
 mkdir -p "$OUTDIR"
@@ -212,6 +219,7 @@ collect_power=$COLLECT_POWER
 collect_pcie=$COLLECT_PCIE
 collect_xgmi=$COLLECT_XGMI
 html_report=$HTML_REPORT
+min_timeseries_samples=$MIN_TIMESERIES_SAMPLES
 RUNINFO
 
 echo "Collecting AMD uProf PCM metrics..."
@@ -358,11 +366,25 @@ nv_output_path = outdir / 'nvbandwidth.out'
 if not nv_output_path.exists():
     nv_output_path = outdir / 'amdprof_pcm.out'
 nv_output = nv_output_path.read_text(errors='replace')
-reported = None
+reported_sums = []
 for line in nv_output.splitlines():
-    m = re.match(r'^SUM\s+host_device_bandwidth_sm\s+([0-9.]+)', line.strip())
+    m = re.match(r'^SUM\s+(\S+)\s+([-+0-9.eE]+)', line.strip())
     if m:
-        reported = float(m.group(1))
+        try:
+            reported_sums.append((m.group(1), float(m.group(2))))
+        except ValueError:
+            pass
+preferred_sum_names = {
+    'host_to_device_memcpy_sm',
+    'host_device_bandwidth_sm',
+}
+reported = None
+for name, value in reported_sums:
+    if name in preferred_sum_names:
+        reported = (name, value)
+        break
+if reported is None and reported_sums:
+    reported = reported_sums[-1]
 
 def series_for(metric_name, component=None, group=None, component_contains=None, group_contains=None, metric_contains=None):
     matches = []
@@ -421,9 +443,11 @@ def first_series(metric_name, component=None, group_contains=None, component_con
 
 print('=== nvbandwidth output ===')
 if reported is None:
-    print('nvbandwidth_SUM_host_device_bandwidth_sm_GBps=NOT_FOUND')
+    print('nvbandwidth_SUM_GBps=NOT_FOUND')
 else:
-    print(f'nvbandwidth_SUM_host_device_bandwidth_sm_GBps={reported:.3f}')
+    print(f'nvbandwidth_SUM_GBps={reported[1]:.3f}')
+    for name, value in reported_sums:
+        print(f'nvbandwidth_SUM_{name}_GBps={value:.3f}')
 
 print('\n=== AMDuProfPcm report ===')
 print(f'report_dir={report_dir}')
@@ -493,6 +517,19 @@ for c in columns:
     if any(k in c['metric'].lower() for k in ['bw', 'bandwidth']):
         print(text)
 PY
+
+if [[ "$MIN_TIMESERIES_SAMPLES" != "0" ]]; then
+    parsed_samples="$(awk -F= '$1=="timeseries_samples" {print $2; exit}' "$OUTDIR/summary.txt" | tr -d '[:space:]')"
+    if [[ -z "$parsed_samples" ]]; then
+        echo "ERROR: timeseries_samples not found in $OUTDIR/summary.txt" >&2
+        exit 1
+    fi
+    if [[ "$parsed_samples" =~ ^[0-9]+$ ]] && (( parsed_samples < MIN_TIMESERIES_SAMPLES )); then
+        echo "ERROR: insufficient AMDuProf samples: timeseries_samples=$parsed_samples < min_timeseries_samples=$MIN_TIMESERIES_SAMPLES" >&2
+        echo "Hint: increase LOOP_COUNT/TEST_SAMPLES or reduce profiling interval where possible." >&2
+        exit 1
+    fi
+fi
 
 echo
 echo "Done. Files written under: $OUTDIR"
