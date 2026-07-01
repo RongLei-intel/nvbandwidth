@@ -30,7 +30,7 @@ set -Eeuo pipefail
 #
 # EMON overrides:
 #   EMON_CONTROL_MODE=external               external => emon background + workload once + SIGINT; app => EMON executes wrapper
-#   EMON_INTERVAL_SECONDS=                   optional EMON -t value
+#   EMON_INTERVAL_SECONDS=0.1                EMON -t value in seconds; 0.1 = 100 ms
 #   EMON_LOOPS=                              optional EMON -l value; do not use 0 with -collect-edp on this host
 #   EMON_START_DELAY_SECONDS=                optional EMON -s delay before monitoring starts
 #   EMON_WARMUP_SECONDS=2                    seconds to wait after starting background EMON before workload
@@ -69,7 +69,7 @@ SKIP_VERIFICATION="${SKIP_VERIFICATION:-1}"
 VERBOSE_NVBW="${VERBOSE_NVBW:-0}"
 
 EMON_CONTROL_MODE="${EMON_CONTROL_MODE:-external}"
-EMON_INTERVAL_SECONDS="${EMON_INTERVAL_SECONDS:-}"
+EMON_INTERVAL_SECONDS="${EMON_INTERVAL_SECONDS:-0.1}"
 EMON_LOOPS="${EMON_LOOPS:-}"
 EMON_START_DELAY_SECONDS="${EMON_START_DELAY_SECONDS:-}"
 EMON_WARMUP_SECONDS="${EMON_WARMUP_SECONDS:-2}"

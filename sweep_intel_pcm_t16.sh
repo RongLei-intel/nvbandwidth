@@ -33,11 +33,13 @@ set -euo pipefail
 #   BUFFER_SIZES="1 2 4 8 16 32 64 128"
 #   OUTROOT=<dir>                 sweep root dir; default timestamped
 #   RUN_LABEL=<name>              optional label added to OUTROOT and log filenames
-#   RETRIES=2                     attempts per buffer
+#   RETRIES=3                     repeat count per case; all repeats are run and saved
 #   AUTO_LOOP_COUNT=1             default: choose loopCount from TARGET_TRANSFER_MIB / BUFFER_SIZE
 #   TARGET_TRANSFER_MIB=262144    target logical copied MiB per nvbandwidth sample before testSamples/warmup
+#   SMALL_BUFFER_MAX_MIB=32       buffers <= this use SMALL_BUFFER_TARGET_TRANSFER_MIB for longer collection
+#   SMALL_BUFFER_TARGET_TRANSFER_MIB=262144  small-buffer target logical copied MiB (256 GiB)
 #   MIN_LOOP_COUNT=16             lower bound for auto/scaled loopCount
-#   MAX_LOOP_COUNT=131072         upper bound for auto/scaled loopCount
+#   MAX_LOOP_COUNT=1048576        upper bound for auto/scaled loopCount
 #   LOOP_COUNT=<N>                explicit fixed loopCount for all buffers; overrides auto/scaled mode
 #   USE_SCALED_LOOP_COUNT=0       legacy mode: set 1 to scale loopCount inversely with buffer size
 #   BASE_LOOP_COUNT=5000          loopCount at BASE_BUFFER_MIB when USE_SCALED_LOOP_COUNT=1
@@ -50,7 +52,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 BUFFER_SIZES="${BUFFER_SIZES:-1 2 4 8 16 32 64 128 256 512 1024 2048}"
-RETRIES="${RETRIES:-2}"
+RETRIES="${RETRIES:-3}"
 COLLECT_SCRIPT="${COLLECT_SCRIPT:-./collect_pcm_nvsmi_nvbw.sh}"
 RUN_LABEL="${RUN_LABEL:-}"
 
@@ -65,7 +67,7 @@ DRIVER_LOG_BASENAME="driver${RUN_LABEL:+_${RUN_LABEL}}.log"
 
 NVBANDWIDTH_BIN="${NVBANDWIDTH_BIN:-./nvbandwidth}"
 TESTCASE="${TESTCASE:-16}"
-CUDA_VISIBLE_DEVICES_VALUE="${CUDA_VISIBLE_DEVICES-2}"
+CUDA_VISIBLE_DEVICES_VALUE="${CUDA_VISIBLE_DEVICES-0}"
 NUMA_NODE_VALUE="${NUMA_NODE-0}"
 CPU_BIND_VALUE="${CPU_BIND-1}"
 TEST_SAMPLES_VALUE="${TEST_SAMPLES-}"
@@ -88,11 +90,13 @@ INCLUDE_NVIDIA_APPS="${INCLUDE_NVIDIA_APPS:-0}"
 LOOP_COUNT_VALUE="${LOOP_COUNT-}"
 AUTO_LOOP_COUNT="${AUTO_LOOP_COUNT:-1}"
 TARGET_TRANSFER_MIB="${TARGET_TRANSFER_MIB:-262144}"
+SMALL_BUFFER_MAX_MIB="${SMALL_BUFFER_MAX_MIB:-32}"
+SMALL_BUFFER_TARGET_TRANSFER_MIB="${SMALL_BUFFER_TARGET_TRANSFER_MIB:-262144}"
 USE_SCALED_LOOP_COUNT="${USE_SCALED_LOOP_COUNT:-0}"
 BASE_LOOP_COUNT="${BASE_LOOP_COUNT:-5000}"
 BASE_BUFFER_MIB="${BASE_BUFFER_MIB:-2}"
 MIN_LOOP_COUNT="${MIN_LOOP_COUNT:-16}"
-MAX_LOOP_COUNT="${MAX_LOOP_COUNT:-262144}"
+MAX_LOOP_COUNT="${MAX_LOOP_COUNT:-1048576}"
 
 if [[ -x "$COLLECT_SCRIPT" ]]; then
   collect_cmd=("$COLLECT_SCRIPT")
@@ -135,12 +139,23 @@ scaled_loop_count() {
     printf '%s\n' "$loop_count"
 }
 
+target_transfer_mib_for_buffer() {
+    local buffer_mib="$1"
+    if (( SMALL_BUFFER_MAX_MIB > 0 && buffer_mib <= SMALL_BUFFER_MAX_MIB )); then
+        printf '%s\n' "$SMALL_BUFFER_TARGET_TRANSFER_MIB"
+    else
+        printf '%s\n' "$TARGET_TRANSFER_MIB"
+    fi
+}
+
 auto_loop_count() {
     local buffer_mib="$1"
+    local target_transfer_mib
     local loop_count
     # Ceiling division keeps small buffers alive long enough for PCM/NVIDIA sampling,
     # while preventing large buffers from inheriting a painfully large fixed loopCount.
-    loop_count=$(( (TARGET_TRANSFER_MIB + buffer_mib - 1) / buffer_mib ))
+    target_transfer_mib="$(target_transfer_mib_for_buffer "$buffer_mib")"
+    loop_count=$(( (target_transfer_mib + buffer_mib - 1) / buffer_mib ))
     if (( loop_count < MIN_LOOP_COUNT )); then
         loop_count="$MIN_LOOP_COUNT"
     fi
@@ -172,6 +187,8 @@ auto_loop_count() {
   echo "loop_count_fixed=$LOOP_COUNT_VALUE"
     echo "auto_loop_count=$AUTO_LOOP_COUNT"
     echo "target_transfer_mib=$TARGET_TRANSFER_MIB"
+    echo "small_buffer_max_mib=$SMALL_BUFFER_MAX_MIB"
+    echo "small_buffer_target_transfer_mib=$SMALL_BUFFER_TARGET_TRANSFER_MIB"
   echo "use_scaled_loop_count=$USE_SCALED_LOOP_COUNT"
   echo "base_loop_count=$BASE_LOOP_COUNT"
   echo "base_buffer_mib=$BASE_BUFFER_MIB"
@@ -190,7 +207,7 @@ failed=0
 
 for sm_copy_bytes in $SM_COPY_BYTES_LIST; do
     for b in $BUFFER_SIZES; do
-        ok=0
+        case_failed=0
 
         loop_env=()
     if [[ -n "$LOOP_COUNT_VALUE" ]]; then
@@ -230,7 +247,7 @@ for sm_copy_bytes in $SM_COPY_BYTES_LIST; do
         for attempt in $(seq 1 "$RETRIES"); do
             suffix=""
             if (( attempt > 1 )); then
-                suffix="_retry${attempt}"
+                suffix="_run${attempt}"
             fi
             outdir="$OUTROOT/buffer_${b}MiB_smcopy_${sm_copy_bytes}B${suffix}"
 
@@ -238,7 +255,8 @@ for sm_copy_bytes in $SM_COPY_BYTES_LIST; do
             echo "===== SM_COPY_BYTES=${sm_copy_bytes} BUFFER_SIZE=${b} MiB attempt=${attempt}/${RETRIES} -> ${outdir} ====="
             echo "  ${loop_env[*]}"
         if [[ "$AUTO_LOOP_COUNT" != "0" && -z "$LOOP_COUNT_VALUE" && "$USE_SCALED_LOOP_COUNT" == "0" ]]; then
-                    echo "  auto target: ~${TARGET_TRANSFER_MIB} MiB logical copy per sample, bounds=[${MIN_LOOP_COUNT}, ${MAX_LOOP_COUNT}]"
+            effective_target_transfer_mib="$(target_transfer_mib_for_buffer "$b")"
+            echo "  auto target: ~${effective_target_transfer_mib} MiB logical copy per sample, bounds=[${MIN_LOOP_COUNT}, ${MAX_LOOP_COUNT}]"
         fi
             echo "  EXTRA_NVBW_ARGS=$run_extra_nvbw_args"
             echo "  SAMPLE_INTERVAL=$SAMPLE_INTERVAL NVIDIA_DMON_INTERVAL=$NVIDIA_DMON_INTERVAL PCM_TOOLS=$PCM_TOOLS"
@@ -250,14 +268,14 @@ for sm_copy_bytes in $SM_COPY_BYTES_LIST; do
 
             if [[ "$rc" -eq 0 ]]; then
                 echo "SM_COPY_BYTES=${sm_copy_bytes} BUFFER_SIZE=${b} status=ok attempt=${attempt} outdir=${outdir} ${loop_env[*]}" | tee -a "$SWEEP_INFO_FILE"
-                ok=1
-                break
+                continue
             fi
 
+            case_failed=1
             echo "SM_COPY_BYTES=${sm_copy_bytes} BUFFER_SIZE=${b} status=failed attempt=${attempt} rc=${rc} outdir=${outdir} ${loop_env[*]}" | tee -a "$SWEEP_INFO_FILE"
         done
 
-        if [[ "$ok" -ne 1 ]]; then
+        if [[ "$case_failed" -ne 0 ]]; then
             failed=1
         fi
     done
@@ -343,7 +361,7 @@ def run_info_for(outdir):
 
 
 def retry_order(path):
-    match = re.search(r'_retry(\d+)$', path.name)
+    match = re.search(r'_(?:run|retry)(\d+)$', path.name)
     if match:
         return int(match.group(1))
     return 1
@@ -354,7 +372,7 @@ def dirs_for_combo(buffer_mib, sm_copy_bytes):
     for path in root.iterdir() if root.exists() else []:
         if not path.is_dir():
             continue
-        if path.name == f'buffer_{buffer_mib}MiB_smcopy_{sm_copy_bytes}B' or re.match(rf'^buffer_{buffer_mib}MiB_smcopy_{sm_copy_bytes}B_retry\d+$', path.name):
+        if path.name == f'buffer_{buffer_mib}MiB_smcopy_{sm_copy_bytes}B' or re.match(rf'^buffer_{buffer_mib}MiB_smcopy_{sm_copy_bytes}B_(?:run|retry)\d+$', path.name):
             if (path / 'summary.txt').is_file() or (path / 'nvbandwidth.out').is_file() or (path / 'run.info').is_file():
                 candidates.append(path)
     return sorted(candidates, key=lambda p: (retry_order(p), p.name))
@@ -488,80 +506,85 @@ rows = []
 for sm_copy_bytes in sm_copy_bytes_values:
     for buffer_mib in buffers:
         candidates = dirs_for_combo(buffer_mib, sm_copy_bytes)
-        row = {
-            'sm_copy_bytes': sm_copy_bytes,
-            'buffer_MiB': buffer_mib,
-            'status': 'missing',
-            'result_dir': '',
-        }
         if not candidates:
+            row = {
+                'sm_copy_bytes': sm_copy_bytes,
+                'repeat': '',
+                'buffer_MiB': buffer_mib,
+                'status': 'missing',
+                'result_dir': '',
+            }
             rows.append(row)
             continue
 
-        outdir = candidates[-1]
-        info = run_info_for(outdir)
-        nvbw_rc = info.get('nvbandwidth_rc') or info.get('workload_rc') or ''
-        row.update({
-            'status': 'ok' if nvbw_rc in {'', '0'} else f'rc={nvbw_rc}',
-            'result_dir': str(outdir),
-            'nvbandwidth_rc': nvbw_rc,
-            'loop_count': info.get('loop_count', ''),
-        })
+        for outdir in candidates:
+            info = run_info_for(outdir)
+            nvbw_rc = info.get('nvbandwidth_rc') or info.get('workload_rc') or ''
+            row = {
+                'sm_copy_bytes': sm_copy_bytes,
+                'repeat': retry_order(outdir),
+                'buffer_MiB': buffer_mib,
+                'status': 'ok' if nvbw_rc in {'', '0'} else f'rc={nvbw_rc}',
+                'result_dir': str(outdir),
+                'nvbandwidth_rc': nvbw_rc,
+                'loop_count': info.get('loop_count', ''),
+            }
 
-        nvbw_sum = parse_nvbandwidth_sum(outdir)
-        if nvbw_sum is not None:
-            row['nvbandwidth_SUM_GBps'] = f'{nvbw_sum:.3f}'
+            nvbw_sum = parse_nvbandwidth_sum(outdir)
+            if nvbw_sum is not None:
+                row['nvbandwidth_SUM_GBps'] = f'{nvbw_sum:.3f}'
 
-        memory, memory_samples = load_pcm_memory(outdir)
-        sys_mem_rd = stats(memory.get('System.Read', []))
-        sys_mem_wr = stats(memory.get('System.Write', []))
-        sys_mem_total = stats(memory.get('System.Memory', []))
-        numa_node = info.get('numa_node', '')
-        target_prefix = f'SKT{numa_node}' if numa_node != '' else ''
-        target_mem_rd = stats(memory.get(f'{target_prefix}.Mem Read (MB/s)', [])) if target_prefix else None
+            memory, memory_samples = load_pcm_memory(outdir)
+            sys_mem_rd = stats(memory.get('System.Read', []))
+            sys_mem_wr = stats(memory.get('System.Write', []))
+            sys_mem_total = stats(memory.get('System.Memory', []))
+            numa_node = info.get('numa_node', '')
+            target_prefix = f'SKT{numa_node}' if numa_node != '' else ''
+            target_mem_rd = stats(memory.get(f'{target_prefix}.Mem Read (MB/s)', [])) if target_prefix else None
 
-        row.update({
-            'system_mem_read_median_GBps': stval(sys_mem_rd, 'median'),
-            'system_mem_read_p95_GBps': stval(sys_mem_rd, 'p95'),
-            'system_mem_read_max_GBps': stval(sys_mem_rd, 'max'),
-            'system_mem_write_median_GBps': stval(sys_mem_wr, 'median'),
-            'system_mem_total_median_GBps': stval(sys_mem_total, 'median'),
-            'target_socket_mem_read_median_GBps': stval(target_mem_rd, 'median'),
-            'pcm_memory_samples': memory_samples,
-        })
+            row.update({
+                'system_mem_read_median_GBps': stval(sys_mem_rd, 'median'),
+                'system_mem_read_p95_GBps': stval(sys_mem_rd, 'p95'),
+                'system_mem_read_max_GBps': stval(sys_mem_rd, 'max'),
+                'system_mem_write_median_GBps': stval(sys_mem_wr, 'median'),
+                'system_mem_total_median_GBps': stval(sys_mem_total, 'median'),
+                'target_socket_mem_read_median_GBps': stval(target_mem_rd, 'median'),
+                'pcm_memory_samples': memory_samples,
+            })
 
-        pcie, pcie_samples = load_pcm_pcie(outdir)
-        pcie_rd = stats(pcie.get('PCIe Rd (B)', []))
-        pcie_wr = stats(pcie.get('PCIe Wr (B)', []))
-        pcie_total = stats(pcie.get('PCIe Total (B)', []))
-        row.update({
-            'system_pcie_read_median_GBps': stval(pcie_rd, 'median'),
-            'system_pcie_read_p95_GBps': stval(pcie_rd, 'p95'),
-            'system_pcie_read_max_GBps': stval(pcie_rd, 'max'),
-            'system_pcie_write_median_GBps': stval(pcie_wr, 'median'),
-            'system_pcie_total_median_GBps': stval(pcie_total, 'median'),
-            'system_pcie_total_p95_GBps': stval(pcie_total, 'p95'),
-            'pcm_pcie_samples': pcie_samples,
-        })
+            pcie, pcie_samples = load_pcm_pcie(outdir)
+            pcie_rd = stats(pcie.get('PCIe Rd (B)', []))
+            pcie_wr = stats(pcie.get('PCIe Wr (B)', []))
+            pcie_total = stats(pcie.get('PCIe Total (B)', []))
+            row.update({
+                'system_pcie_read_median_GBps': stval(pcie_rd, 'median'),
+                'system_pcie_read_p95_GBps': stval(pcie_rd, 'p95'),
+                'system_pcie_read_max_GBps': stval(pcie_rd, 'max'),
+                'system_pcie_write_median_GBps': stval(pcie_wr, 'median'),
+                'system_pcie_total_median_GBps': stval(pcie_total, 'median'),
+                'system_pcie_total_p95_GBps': stval(pcie_total, 'p95'),
+                'pcm_pcie_samples': pcie_samples,
+            })
 
-        dmon, dmon_rows = load_nvidia_dmon(outdir)
-        dmon_rx = stats(dmon.get('rxpci', []))
-        dmon_tx = stats(dmon.get('txpci', []))
-        dmon_total = stats(dmon.get('pcie_total', []))
-        row.update({
-            'nvidia_rxpcie_median_GBps': stval(dmon_rx, 'median'),
-            'nvidia_rxpcie_p95_GBps': stval(dmon_rx, 'p95'),
-            'nvidia_txpcie_median_GBps': stval(dmon_tx, 'median'),
-            'nvidia_txpcie_p95_GBps': stval(dmon_tx, 'p95'),
-            'nvidia_pcie_total_median_GBps': stval(dmon_total, 'median'),
-            'nvidia_pcie_total_p95_GBps': stval(dmon_total, 'p95'),
-            'nvidia_dmon_rows': dmon_rows,
-        })
+            dmon, dmon_rows = load_nvidia_dmon(outdir)
+            dmon_rx = stats(dmon.get('rxpci', []))
+            dmon_tx = stats(dmon.get('txpci', []))
+            dmon_total = stats(dmon.get('pcie_total', []))
+            row.update({
+                'nvidia_rxpcie_median_GBps': stval(dmon_rx, 'median'),
+                'nvidia_rxpcie_p95_GBps': stval(dmon_rx, 'p95'),
+                'nvidia_txpcie_median_GBps': stval(dmon_tx, 'median'),
+                'nvidia_txpcie_p95_GBps': stval(dmon_tx, 'p95'),
+                'nvidia_pcie_total_median_GBps': stval(dmon_total, 'median'),
+                'nvidia_pcie_total_p95_GBps': stval(dmon_total, 'p95'),
+                'nvidia_dmon_rows': dmon_rows,
+            })
 
-        rows.append(row)
+            rows.append(row)
 
 fieldnames = [
     'sm_copy_bytes',
+    'repeat',
     'buffer_MiB',
     'status',
     'loop_count',
@@ -611,13 +634,13 @@ md_lines = [
     '- `System PCIe Rd` comes from `pcm-pcie.csv` / `PCIe Rd (B)`.',
     '- `NVIDIA rx+tx` comes from optional `nvidia-smi dmon` telemetry and may be blank if disabled or unsupported.',
     '',
-    '| SM copy bytes | Buffer MiB | LoopCount | Status | nvbandwidth SUM | System Mem Rd median | System Mem Rd p95 | System PCIe Rd median | System PCIe Rd p95 | NVIDIA rx+tx median | Samples mem/pcie | Result dir |',
-    '| ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
+    '| SM copy bytes | Repeat | Buffer MiB | LoopCount | Status | nvbandwidth SUM | System Mem Rd median | System Mem Rd p95 | System PCIe Rd median | System PCIe Rd p95 | NVIDIA rx+tx median | Samples mem/pcie | Result dir |',
+    '| ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
 ]
 for row in rows:
     samples = f"{cell(row, 'pcm_memory_samples')}/{cell(row, 'pcm_pcie_samples')}"
     md_lines.append(
-        f"| {cell(row, 'sm_copy_bytes')} | {cell(row, 'buffer_MiB')} | {cell(row, 'loop_count')} | {cell(row, 'status')} | {cell(row, 'nvbandwidth_SUM_GBps')} | "
+        f"| {cell(row, 'sm_copy_bytes')} | {cell(row, 'repeat')} | {cell(row, 'buffer_MiB')} | {cell(row, 'loop_count')} | {cell(row, 'status')} | {cell(row, 'nvbandwidth_SUM_GBps')} | "
         f"{cell(row, 'system_mem_read_median_GBps')} | {cell(row, 'system_mem_read_p95_GBps')} | "
         f"{cell(row, 'system_pcie_read_median_GBps')} | {cell(row, 'system_pcie_read_p95_GBps')} | "
         f"{cell(row, 'nvidia_pcie_total_median_GBps')} | {samples} | {cell(row, 'result_dir')} |"
