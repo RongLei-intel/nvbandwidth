@@ -31,6 +31,9 @@ set -euo pipefail
 #   RETRIES=2                     attempts per combination
 #   AUTO_LOOP_COUNT=1             default: choose loopCount from TARGET_TRANSFER_MIB / BUFFER_SIZE
 #   TARGET_TRANSFER_MIB=32768     target logical transferred MiB per nvbandwidth sample
+#   LARGE_BUFFER_MIB_THRESHOLD=1024  when BUFFER_SIZE >= threshold, use large-buffer auto-loop policy
+#   LARGE_TARGET_TRANSFER_MIB=8192   target logical transferred MiB per sample for large buffers
+#   LARGE_MIN_LOOP_COUNT=4           lower bound for large-buffer auto-loop count
 #   LOOP_COUNT=<N>                fixed loopCount for all buffers; overrides auto/scaled mode
 #   USE_SCALED_LOOP_COUNT=0       scale loopCount inversely with buffer size
 #   BASE_LOOP_COUNT=5000          loopCount at BASE_BUFFER_MIB when USE_SCALED_LOOP_COUNT=1
@@ -88,6 +91,9 @@ HTML_REPORT="${HTML_REPORT:-0}"
 LOOP_COUNT_VALUE="${LOOP_COUNT-}"
 AUTO_LOOP_COUNT="${AUTO_LOOP_COUNT:-1}"
 TARGET_TRANSFER_MIB="${TARGET_TRANSFER_MIB:-32768}"
+LARGE_BUFFER_MIB_THRESHOLD="${LARGE_BUFFER_MIB_THRESHOLD:-1024}"
+LARGE_TARGET_TRANSFER_MIB="${LARGE_TARGET_TRANSFER_MIB:-8192}"
+LARGE_MIN_LOOP_COUNT="${LARGE_MIN_LOOP_COUNT:-4}"
 USE_SCALED_LOOP_COUNT="${USE_SCALED_LOOP_COUNT:-0}"
 BASE_LOOP_COUNT="${BASE_LOOP_COUNT:-5000}"
 BASE_BUFFER_MIB="${BASE_BUFFER_MIB:-2}"
@@ -137,10 +143,18 @@ scaled_loop_count() {
 
 auto_loop_count() {
     local buffer_mib="$1"
+    local target_transfer_mib="$TARGET_TRANSFER_MIB"
+    local min_loop_count="$MIN_LOOP_COUNT"
     local loop_count
-    loop_count=$(( (TARGET_TRANSFER_MIB + buffer_mib - 1) / buffer_mib ))
-    if (( loop_count < MIN_LOOP_COUNT )); then
-        loop_count="$MIN_LOOP_COUNT"
+
+    if (( buffer_mib >= LARGE_BUFFER_MIB_THRESHOLD )); then
+        target_transfer_mib="$LARGE_TARGET_TRANSFER_MIB"
+        min_loop_count="$LARGE_MIN_LOOP_COUNT"
+    fi
+
+    loop_count=$(( (target_transfer_mib + buffer_mib - 1) / buffer_mib ))
+    if (( loop_count < min_loop_count )); then
+        loop_count="$min_loop_count"
     fi
     if (( loop_count > MAX_LOOP_COUNT )); then
         loop_count="$MAX_LOOP_COUNT"
@@ -169,6 +183,9 @@ auto_loop_count() {
     echo "loop_count_fixed=$LOOP_COUNT_VALUE"
     echo "auto_loop_count=$AUTO_LOOP_COUNT"
     echo "target_transfer_mib=$TARGET_TRANSFER_MIB"
+    echo "large_buffer_mib_threshold=$LARGE_BUFFER_MIB_THRESHOLD"
+    echo "large_target_transfer_mib=$LARGE_TARGET_TRANSFER_MIB"
+    echo "large_min_loop_count=$LARGE_MIN_LOOP_COUNT"
     echo "use_scaled_loop_count=$USE_SCALED_LOOP_COUNT"
     echo "base_loop_count=$BASE_LOOP_COUNT"
     echo "base_buffer_mib=$BASE_BUFFER_MIB"
@@ -238,7 +255,11 @@ for ptr_chase_load_bytes in $PTR_CHASE_LOAD_BYTES_LIST; do
             echo "===== PTR_CHASE_LOAD_BYTES=${ptr_chase_load_bytes} BUFFER_SIZE=${b} MiB attempt=${attempt}/${RETRIES} -> ${outdir} ====="
             echo "  ${loop_env[*]-}"
             if [[ "$AUTO_LOOP_COUNT" != "0" && -z "$LOOP_COUNT_VALUE" && "$USE_SCALED_LOOP_COUNT" == "0" ]]; then
-                echo "  auto target: ~${TARGET_TRANSFER_MIB} MiB logical transfer per sample, bounds=[${MIN_LOOP_COUNT}, ${MAX_LOOP_COUNT}]"
+                if (( b >= LARGE_BUFFER_MIB_THRESHOLD )); then
+                    echo "  auto target (large buffer): ~${LARGE_TARGET_TRANSFER_MIB} MiB logical transfer per sample, bounds=[${LARGE_MIN_LOOP_COUNT}, ${MAX_LOOP_COUNT}]"
+                else
+                    echo "  auto target: ~${TARGET_TRANSFER_MIB} MiB logical transfer per sample, bounds=[${MIN_LOOP_COUNT}, ${MAX_LOOP_COUNT}]"
+                fi
             fi
             echo "  EXTRA_NVBW_ARGS=$run_extra_nvbw_args"
             echo "  SAMPLE_INTERVAL_MS=$SAMPLE_INTERVAL_MS PCM_WAIT_FOR_SIGNAL=$PCM_WAIT_FOR_SIGNAL PCM_METRICS=$PCM_METRICS"
