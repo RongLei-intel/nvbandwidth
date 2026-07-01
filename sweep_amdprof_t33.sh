@@ -347,6 +347,8 @@ for ptr_chase_load_bytes in ptr_chase_load_bytes_values:
         candidates = dirs_for_combo(buffer_mib, ptr_chase_load_bytes)
         row = {
             'ptr_chase_load_bytes': ptr_chase_load_bytes,
+            'tuning_param_name': info.get('tuning_param_name', 'ptr_chase_load_bytes'),
+            'tuning_param_value_bytes': info.get('tuning_param_value_bytes', str(ptr_chase_load_bytes)),
             'buffer_MiB': buffer_mib,
             'status': 'missing',
             'result_dir': '',
@@ -364,6 +366,8 @@ for ptr_chase_load_bytes in ptr_chase_load_bytes_values:
             'result_dir': str(outdir),
             'workload_rc': rc,
             'loop_count': info.get('loop_count', ''),
+            'tuning_param_name': info.get('tuning_param_name', 'ptr_chase_load_bytes'),
+            'tuning_param_value_bytes': info.get('tuning_param_value_bytes', str(ptr_chase_load_bytes)),
             'nvbandwidth_SUM_GBps': first_value(summary, ['nvbandwidth_SUM_host_device_bandwidth_sm_GBps', 'nvbandwidth_SUM_GBps']),
             'system_mem_read_median_GBps': summary.get('system_total_mem_read_bw_GBps_median', ''),
             'system_mem_read_p95_GBps': summary.get('system_total_mem_read_bw_GBps_p95', ''),
@@ -383,6 +387,8 @@ for ptr_chase_load_bytes in ptr_chase_load_bytes_values:
 
 fieldnames = [
     'ptr_chase_load_bytes',
+    'tuning_param_name',
+    'tuning_param_value_bytes',
     'buffer_MiB',
     'status',
     'loop_count',
@@ -419,16 +425,17 @@ md_lines = [
     f'# AMD uProf PCM nvbandwidth testcase {testcase} sweep summary',
     '',
     '- Units: GB/s.',
+    '- AMD tuning metadata is recorded in `tuning_param_name` and `tuning_param_value_bytes` for downstream merges.',
     '- `Ptr load bytes` maps to nvbandwidth `--ptrChaseLoadBytes` for testcase 33.',
     '- `System Mem Rd` comes from AMDuProfPcm `Total Mem RdBw (GB/s)` / `System (Aggregated)`.',
     '- `System PCIe Rd` comes from AMDuProfPcm `Total PCIE Rd Bandwidth (GB/s)` / `System (Aggregated)`.',
     '',
-    '| Ptr load bytes | Buffer MiB | LoopCount | Status | nvbandwidth SUM | System Mem Rd median | System Mem Rd p95 | System PCIe Rd median | System PCIe Rd p95 | Samples | Result dir |',
-    '| ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
+    '| Ptr load bytes | tuning param | tuning value bytes | Buffer MiB | LoopCount | Status | nvbandwidth SUM | System Mem Rd median | System Mem Rd p95 | System PCIe Rd median | System PCIe Rd p95 | Samples | Result dir |',
+    '| ---: | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
 ]
 for row in rows:
     md_lines.append(
-        f"| {cell(row, 'ptr_chase_load_bytes')} | {cell(row, 'buffer_MiB')} | {cell(row, 'loop_count')} | {cell(row, 'status')} | {cell(row, 'nvbandwidth_SUM_GBps')} | "
+        f"| {cell(row, 'ptr_chase_load_bytes')} | {cell(row, 'tuning_param_name')} | {cell(row, 'tuning_param_value_bytes')} | {cell(row, 'buffer_MiB')} | {cell(row, 'loop_count')} | {cell(row, 'status')} | {cell(row, 'nvbandwidth_SUM_GBps')} | "
         f"{cell(row, 'system_mem_read_median_GBps')} | {cell(row, 'system_mem_read_p95_GBps')} | "
         f"{cell(row, 'system_pcie_read_median_GBps')} | {cell(row, 'system_pcie_read_p95_GBps')} | "
         f"{cell(row, 'timeseries_samples')} | {cell(row, 'result_dir')} |"

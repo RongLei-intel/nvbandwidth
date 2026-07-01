@@ -120,6 +120,16 @@ if [[ -n "$EXTRA_NVBW_ARGS" ]]; then
   nvbandwidth_args+=("${extra_args[@]}")
 fi
 
+tuning_param_name=""
+tuning_param_value_bytes=""
+if [[ "$EXTRA_NVBW_ARGS" =~ --smCopyBytes[[:space:]]+([0-9]+) ]]; then
+    tuning_param_name="sm_copy_bytes"
+    tuning_param_value_bytes="${BASH_REMATCH[1]}"
+elif [[ "$EXTRA_NVBW_ARGS" =~ --ptrChaseLoadBytes[[:space:]]+([0-9]+) ]]; then
+    tuning_param_name="ptr_chase_load_bytes"
+    tuning_param_value_bytes="${BASH_REMATCH[1]}"
+fi
+
 scope_args=()
 if [[ "$PCM_SCOPE" == "all" ]]; then
   scope_args=(-a)
@@ -206,6 +216,8 @@ latency_stride_len=$LATENCY_STRIDE_LEN
 verbose_nvbw=$VERBOSE_NVBW
 skip_verification=$SKIP_VERIFICATION
 extra_nvbw_args=$EXTRA_NVBW_ARGS
+tuning_param_name=$tuning_param_name
+tuning_param_value_bytes=$tuning_param_value_bytes
 pcm_metrics=$PCM_METRICS
 pcm_scope=$PCM_SCOPE
 pcm_aggregate=$PCM_AGGREGATE
