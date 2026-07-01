@@ -12,4 +12,4 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-exec TESTCASE=33 bash ./sweep_intel_small_buffers.sh "$@"
+exec env TESTCASE=33 bash ./sweep_intel_small_buffers.sh "$@"
