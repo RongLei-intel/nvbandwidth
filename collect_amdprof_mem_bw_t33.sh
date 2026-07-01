@@ -15,6 +15,7 @@ set -euo pipefail
 #   CPU_BIND=1                     CPU/core binding for numactl --physcpubind
 #   TESTCASE=33                    nvbandwidth testcase
 #   BUFFER_SIZE=                   optional nvbandwidth --bufferSize value in MiB
+#   BUFFER_SIZE_KIB=               optional nvbandwidth --bufferSizeKiB value in KiB
 #   LOOP_COUNT=                    optional nvbandwidth --loopCount value; empty means use nvbandwidth default
 #   TEST_SAMPLES=                  optional nvbandwidth --testSamples value
 #   HOST_READ_PARALLELISM=         optional nvbandwidth --hostReadParallelism chains per SM for testcase 33
@@ -44,6 +45,7 @@ NUMA_NODE="${NUMA_NODE:-0}"
 CPU_BIND="${CPU_BIND:-1}"
 TESTCASE="${TESTCASE:-33}"
 BUFFER_SIZE="${BUFFER_SIZE:-}"
+BUFFER_SIZE_KIB="${BUFFER_SIZE_KIB:-}"
 LOOP_COUNT="${LOOP_COUNT:-}"
 TEST_SAMPLES="${TEST_SAMPLES:-}"
 HOST_READ_PARALLELISM="${HOST_READ_PARALLELISM:-512}"
@@ -95,6 +97,9 @@ mkdir -p "$OUTDIR"
 nvbandwidth_args=(-t "$TESTCASE")
 if [[ -n "$BUFFER_SIZE" ]]; then
     nvbandwidth_args+=(--bufferSize "$BUFFER_SIZE")
+fi
+if [[ -n "$BUFFER_SIZE_KIB" ]]; then
+    nvbandwidth_args+=(--bufferSizeKiB "$BUFFER_SIZE_KIB")
 fi
 if [[ -n "$LOOP_COUNT" ]]; then
   nvbandwidth_args+=(--loopCount "$LOOP_COUNT")
@@ -209,6 +214,8 @@ numa_node=$NUMA_NODE
 cpu_bind=$CPU_BIND
 testcase=$TESTCASE
 buffer_size=$BUFFER_SIZE
+buffer_size_kib=$BUFFER_SIZE_KIB
+buffer_size_unit=$([[ -n "$BUFFER_SIZE_KIB" ]] && echo KiB || echo MiB)
 loop_count=$LOOP_COUNT
 test_samples=$TEST_SAMPLES
 host_read_parallelism=$HOST_READ_PARALLELISM

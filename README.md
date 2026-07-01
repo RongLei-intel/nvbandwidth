@@ -52,6 +52,7 @@ You may need to set the BOOST_ROOT environment variable on Windows to tell CMake
 nvbandwidth CLI:
   -h [ --help ]                  Produce help message
   -b [ --bufferSize ] arg (=512) Memcpy buffer size in MiB
+  --bufferSizeKiB arg            Memcpy buffer size in KiB
   --latencyBufferSize arg (=2)   Latency testcase buffer size in MiB
   --latencyStrideLen arg (=16)   Latency pointer-chase stride in LatencyNode entries
   -l [ --list ]                  List available testcases
@@ -97,6 +98,7 @@ memcpy CE GPU(row) <- GPU(column) bandwidth (GB/s)
 ```
 
 Set the number of benchmark samples and the buffer size for copies with --testSamples and --bufferSize.
+Use --bufferSizeKiB when you want true KiB-sized copy buffers instead of the legacy MiB-based sizing.
 Set the buffer size for latency pointer-chase tests with --latencyBufferSize.
 Set the pointer-chase stride for latency tests with --latencyStrideLen.
 Use --flushHostCache with host_device_latency_sm to evict the initialized host pointer-chase buffer from CPU cache before the GPU starts measuring latency.

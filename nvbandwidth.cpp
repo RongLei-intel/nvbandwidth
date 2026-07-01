@@ -38,9 +38,11 @@ unsigned int hostReadBytes;
 unsigned int smCopyBytes;
 unsigned int ptrChaseLoadBytes;
 unsigned long long bufferSize;
+unsigned long long bufferSizeKiB;
 unsigned long long latencyBufferSize;
 unsigned long long loopCount;
 unsigned long long warmupCount;
+unsigned long long benchmarkBufferSizeBytes;
 bool verbose;
 bool shouldOutput = true;
 bool disableAffinity;
@@ -182,7 +184,7 @@ void runTestcase(std::vector<Testcase*> &testcases, const std::string &testcaseI
         if (test->testKey() == "host_device_latency_sm" || test->testKey() == "device_to_device_latency_sm") {
             test->run(latencyBufferSize * _MiB, loopCount);
         } else {
-            test->run(bufferSize * _MiB, loopCount);
+            test->run(benchmarkBufferSizeBytes, loopCount);
         }
     } catch (std::string &s) {
         output->setTestcaseStatusAndAddIfNeeded(test->testKey(), NVB_ERROR_STATUS, s);
@@ -190,6 +192,11 @@ void runTestcase(std::vector<Testcase*> &testcases, const std::string &testcaseI
 }
 
 int main(int argc, char **argv) {
+    bufferSize = defaultBufferSize;
+    bufferSizeKiB = 0;
+    benchmarkBufferSizeBytes = 0;
+    bool bufferSizeKiBSpecified = false;
+
     env = Environment::create(argc, argv);
     env->initialize(argc, argv);
 
@@ -213,6 +220,7 @@ int main(int argc, char **argv) {
     visible_opts.add_options()
         ("help,h", "Produce help message")
         ("bufferSize,b", opt::value<unsigned long long int>(&bufferSize)->default_value(defaultBufferSize), "Memcpy buffer size in MiB")
+        ("bufferSizeKiB", opt::value<unsigned long long int>(&bufferSizeKiB)->notifier([&bufferSizeKiBSpecified](const unsigned long long int &) { bufferSizeKiBSpecified = true; }), "Memcpy buffer size in KiB")
         ("latencyBufferSize", opt::value<unsigned long long int>(&latencyBufferSize)->default_value(defaultLatencyBufferSize), "Latency testcase buffer size in MiB")
         ("latencyStrideLen", opt::value<unsigned int>(&latencyStrideLen)->default_value(defaultLatencyStrideLen), "Latency pointer-chase stride in LatencyNode entries")
         ("hostReadParallelism", opt::value<unsigned int>(&hostReadParallelism)->default_value(defaultHostReadParallelism), "Number of independent pointer-chase chains per SM in host_device_bandwidth_sm. Supported values: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024")
@@ -289,6 +297,28 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (bufferSizeKiBSpecified) {
+        if (bufferSizeKiB == 0) {
+            output->recordError("ERROR: Invalid bufferSizeKiB value: 0. Must be a positive integer.");
+            return 1;
+        }
+        if (bufferSizeKiB > ULLONG_MAX / 1024ULL) {
+            output->recordError("ERROR: Invalid bufferSizeKiB value. The requested buffer size is too large.");
+            return 1;
+        }
+        benchmarkBufferSizeBytes = bufferSizeKiB * 1024ULL;
+    } else {
+        if (bufferSize == 0) {
+            output->recordError("ERROR: Invalid bufferSize value: 0. Must be a positive integer.");
+            return 1;
+        }
+        if (bufferSize > ULLONG_MAX / _MiB) {
+            output->recordError("ERROR: Invalid bufferSize value. The requested buffer size is too large.");
+            return 1;
+        }
+        benchmarkBufferSizeBytes = bufferSize * _MiB;
+    }
+
     if (loopCount == 0) {
         output->recordError("ERROR: Invalid loopCount value: 0. Must be a positive integer.");
         return 1;
@@ -354,7 +384,7 @@ int main(int argc, char **argv) {
     CU_ASSERT(cuInit(0));
     NVML_ASSERT(nvmlInit());
     CU_ASSERT(cuDeviceGetCount(&deviceCount));
-    if (bufferSize < defaultBufferSize) {
+    if (!bufferSizeKiBSpecified && bufferSize < defaultBufferSize) {
         output->recordWarning("NOTE: You have chosen a buffer size that is smaller than the default buffer size. It is suggested to use the default buffer size (512MB) to achieve maximal peak bandwidth.");
     }
 #ifdef _WIN32

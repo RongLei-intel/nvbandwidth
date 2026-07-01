@@ -14,6 +14,7 @@ set -Eeuo pipefail
 #   LOOP_COUNT=300                      nvbandwidth --loopCount; set empty to omit
 #   HOST_READ_PARALLELISM=1             optional --hostReadParallelism for testcase 33
 #   BUFFER_SIZE=                        optional --bufferSize in MiB
+#   BUFFER_SIZE_KIB=                    optional --bufferSizeKiB in KiB
 #   TEST_SAMPLES=                       optional --testSamples
 #   LATENCY_STRIDE_LEN=                 optional --latencyStrideLen
 #   EXTRA_NVBW_ARGS="..."               extra nvbandwidth args, simple shell-like words
@@ -49,6 +50,7 @@ NUMA_NODE="${NUMA_NODE:-0}"
 CPU_BIND="${CPU_BIND:-1}"
 LOOP_COUNT="${LOOP_COUNT:-300}"
 BUFFER_SIZE="${BUFFER_SIZE:-}"
+BUFFER_SIZE_KIB="${BUFFER_SIZE_KIB:-}"
 TEST_SAMPLES="${TEST_SAMPLES:-}"
 HOST_READ_PARALLELISM="${HOST_READ_PARALLELISM:-}"
 LATENCY_STRIDE_LEN="${LATENCY_STRIDE_LEN:-}"
@@ -318,6 +320,9 @@ build_nvbw_command() {
 
     if [[ -n "$BUFFER_SIZE" ]]; then
         nvbandwidth_args+=(--bufferSize "$BUFFER_SIZE")
+    fi
+    if [[ -n "$BUFFER_SIZE_KIB" ]]; then
+        nvbandwidth_args+=(--bufferSizeKiB "$BUFFER_SIZE_KIB")
     fi
     if [[ -n "$LOOP_COUNT" ]]; then
         nvbandwidth_args+=(--loopCount "$LOOP_COUNT")
@@ -867,6 +872,8 @@ numa_node=$NUMA_NODE
 cpu_bind=$CPU_BIND
 loop_count=$LOOP_COUNT
 buffer_size=$BUFFER_SIZE
+buffer_size_kib=$BUFFER_SIZE_KIB
+buffer_size_unit=$([[ -n "$BUFFER_SIZE_KIB" ]] && echo KiB || echo MiB)
 test_samples=$TEST_SAMPLES
 host_read_parallelism=$HOST_READ_PARALLELISM
 latency_stride_len=$LATENCY_STRIDE_LEN
