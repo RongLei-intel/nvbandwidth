@@ -104,6 +104,10 @@ Set the pointer-chase stride for latency tests with --latencyStrideLen.
 Use --flushHostCache with host_device_latency_sm to evict the initialized host pointer-chase buffer from CPU cache before the GPU starts measuring latency.
 Set the number of measured memcpy loops per sample with --loopCount, and the number of warmup loops before each sample with --warmupCount.
 
+For the small-buffer KiB sweeps, use the dedicated wrappers:
+- `sweep_intel_small_buffers.sh` for Intel testcase 16 by default, or `sweep_intel_small_buffers_t33.sh` for testcase 33
+- `sweep_amd_small_buffers.sh` for AMD testcase 16 by default, or `sweep_amd_small_buffers_t33.sh` for testcase 33
+
 ## Multinode benchmarks
 
 In order to build multinode version of nvbandwidth, execute
