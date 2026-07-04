@@ -20,6 +20,7 @@ set -Eeuo pipefail
 #   EXTRA_NVBW_ARGS="..."               extra nvbandwidth args, simple shell-like words
 #   SKIP_VERIFICATION=1                 add --skipVerification when non-zero
 #   VERBOSE_NVBW=0                      add --verbose when non-zero
+#   NVBANDWIDTH_TIMEOUT_SECONDS=120     kill nvbandwidth after this many seconds; 0 disables
 #
 # Collector overrides:
 #   SAMPLE_INTERVAL=1                   PCM sample interval in seconds
@@ -57,6 +58,7 @@ LATENCY_STRIDE_LEN="${LATENCY_STRIDE_LEN:-}"
 EXTRA_NVBW_ARGS="${EXTRA_NVBW_ARGS:-}"
 SKIP_VERIFICATION="${SKIP_VERIFICATION:-1}"
 VERBOSE_NVBW="${VERBOSE_NVBW:-0}"
+NVBANDWIDTH_TIMEOUT_SECONDS="${NVBANDWIDTH_TIMEOUT_SECONDS:-0}"
 
 SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-1}"
 NVIDIA_QUERY_INTERVAL="${NVIDIA_QUERY_INTERVAL:-1}"
@@ -899,7 +901,11 @@ start_nvidia_collectors
 
 log "start nvbandwidth"
 run_start_epoch="$(date +%s)"
-"${nvbandwidth_cmd[@]}" >"$OUTDIR/nvbandwidth.out" 2>"$OUTDIR/nvbandwidth.err" &
+if [[ "$NVBANDWIDTH_TIMEOUT_SECONDS" != "0" && -n "$NVBANDWIDTH_TIMEOUT_SECONDS" ]]; then
+    timeout --foreground --kill-after=5s "${NVBANDWIDTH_TIMEOUT_SECONDS}s" bash -c 'exec "$@"' _ "${nvbandwidth_cmd[@]}" >"$OUTDIR/nvbandwidth.out" 2>"$OUTDIR/nvbandwidth.err" &
+else
+    "${nvbandwidth_cmd[@]}" >"$OUTDIR/nvbandwidth.out" 2>"$OUTDIR/nvbandwidth.err" &
+fi
 nvbw_pid=$!
 printf '%s\n' "$nvbw_pid" >"$OUTDIR/nvbandwidth.pid"
 
@@ -912,6 +918,9 @@ run_end_epoch="$(date +%s)"
 run_seconds=$(( run_end_epoch - run_start_epoch ))
 
 log "nvbandwidth exited rc=$nvbw_rc after ${run_seconds}s"
+if [[ "$nvbw_rc" == "124" ]]; then
+    log "nvbandwidth hit timeout=${NVBANDWIDTH_TIMEOUT_SECONDS}s and was killed"
+fi
 stop_collectors
 
 {

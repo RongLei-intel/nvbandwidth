@@ -5,6 +5,9 @@ set -euo pipefail
 #
 # Default range: 512 KiB, 256 KiB, 128 KiB, 64 KiB, 32 KiB.
 #
+# The default transfer budget is intentionally larger so uProf/telemetry has
+# enough runtime to collect meaningful samples at the smallest buffers.
+#
 # Testcase selection:
 #   TESTCASE=16 -> SM copy width sweep via --smCopyBytes
 #   TESTCASE=33 -> pointer-chase load-width sweep via --ptrChaseLoadBytes
@@ -21,7 +24,7 @@ BUFFER_SIZES_KIB="${BUFFER_SIZES_KIB:-512 256 128 64 32}"
 RETRIES="${RETRIES:-2}"
 TESTCASE="${TESTCASE:-16}"
 COLLECT_SCRIPT="${COLLECT_SCRIPT:-./collect_amdprof_mem_bw_t33.sh}"
-TARGET_TRANSFER_MIB="${TARGET_TRANSFER_MIB:-256}"
+TARGET_TRANSFER_MIB="${TARGET_TRANSFER_MIB:-2048}"
 MIN_LOOP_COUNT="${MIN_LOOP_COUNT:-4}"
 MAX_LOOP_COUNT="${MAX_LOOP_COUNT:-262144}"
 LOOP_COUNT_VALUE="${LOOP_COUNT-}"

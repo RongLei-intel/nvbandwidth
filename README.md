@@ -107,6 +107,12 @@ Set the number of measured memcpy loops per sample with --loopCount, and the num
 For the small-buffer KiB sweeps, use the dedicated wrappers:
 - `sweep_intel_small_buffers.sh` for Intel testcase 16 by default, or `sweep_intel_small_buffers_t33.sh` for testcase 33
 - `sweep_amd_small_buffers.sh` for AMD testcase 16 by default, or `sweep_amd_small_buffers_t33.sh` for testcase 33
+- `sweep_intel_small_buffers_all.sh` to run Intel testcase 16 and 33 back-to-back with the longer default transfer budget
+
+The small-buffer wrappers now default to a longer transfer budget so the collector
+has enough time to capture PCM memory/PCIe reads and NVIDIA telemetry even for
+the smallest KiB-sized cases. You can still override `TARGET_TRANSFER_MIB` if you
+want to push the runtime even further.
 
 ## Multinode benchmarks
 
