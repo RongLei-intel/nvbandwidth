@@ -32,6 +32,7 @@ set -euo pipefail
 #   PCM_WAIT_FOR_SIGNAL=0          set 1 to add AMDuProfPcm --wait-for-signal and let nvbandwidth send SIGUSR1 start
 #   PCM_SIGNAL_END=1               with PCM_WAIT_FOR_SIGNAL=1, let nvbandwidth send SIGINT end after testcase 33 active region
 #   PCM_SIGNAL_READY_DELAY_MS=200  delay after starting AMDuProfPcm before launching workload in signal mode
+#   AMDPROF_WAIT_TIMEOUT_SEC=0     bounded wait for AMDuProfPcm after workload exits; 0 disables timeout
 #   COLLECT_POWER=0                set 1 to add --collect-power
 #   COLLECT_PCIE=0                 set 1 to add --collect-pcie, in addition to pcie metric
 #   COLLECT_XGMI=0                 set 1 to add --collect-xgmi
@@ -48,8 +49,8 @@ BUFFER_SIZE="${BUFFER_SIZE:-}"
 BUFFER_SIZE_KIB="${BUFFER_SIZE_KIB:-}"
 LOOP_COUNT="${LOOP_COUNT:-}"
 TEST_SAMPLES="${TEST_SAMPLES:-}"
-HOST_READ_PARALLELISM="${HOST_READ_PARALLELISM:-512}"
-LATENCY_STRIDE_LEN="${LATENCY_STRIDE_LEN:-8}"
+HOST_READ_PARALLELISM="${HOST_READ_PARALLELISM:-}"
+LATENCY_STRIDE_LEN="${LATENCY_STRIDE_LEN:-}"
 VERBOSE_NVBW="${VERBOSE_NVBW:-0}"
 SKIP_VERIFICATION="${SKIP_VERIFICATION:-0}"
 EXTRA_NVBW_ARGS="${EXTRA_NVBW_ARGS:-}"
@@ -62,6 +63,7 @@ START_DELAY_MS="${START_DELAY_MS:-0}"
 PCM_WAIT_FOR_SIGNAL="${PCM_WAIT_FOR_SIGNAL:-0}"
 PCM_SIGNAL_END="${PCM_SIGNAL_END:-1}"
 PCM_SIGNAL_READY_DELAY_MS="${PCM_SIGNAL_READY_DELAY_MS:-200}"
+AMDPROF_WAIT_TIMEOUT_SEC="${AMDPROF_WAIT_TIMEOUT_SEC:-0}"
 COLLECT_POWER="${COLLECT_POWER:-0}"
 COLLECT_PCIE="${COLLECT_PCIE:-0}"
 COLLECT_XGMI="${COLLECT_XGMI:-0}"
@@ -234,6 +236,7 @@ start_delay_ms=$START_DELAY_MS
 pcm_wait_for_signal=$PCM_WAIT_FOR_SIGNAL
 pcm_signal_end=$PCM_SIGNAL_END
 pcm_signal_ready_delay_ms=$PCM_SIGNAL_READY_DELAY_MS
+amdprof_wait_timeout_sec=$AMDPROF_WAIT_TIMEOUT_SEC
 collect_power=$COLLECT_POWER
 collect_pcie=$COLLECT_PCIE
 collect_xgmi=$COLLECT_XGMI
@@ -248,6 +251,72 @@ echo "  aggregate  : $PCM_AGGREGATE"
 echo "  wait signal: $PCM_WAIT_FOR_SIGNAL"
 echo "  workload   : ${workload_cmd[*]}"
 echo
+
+amdprof_pid=""
+
+stop_amdprof_pid() {
+    local pid="$1"
+    local why="$2"
+    if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+    echo "WARN: stopping AMDuProfPcm pid=$pid ($why)" >&2
+    kill -INT "$pid" 2>/dev/null || true
+    for _ in {1..20}; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in {1..20}; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+}
+
+cleanup_amdprof() {
+    if [[ -n "${amdprof_pid:-}" ]] && kill -0 "$amdprof_pid" 2>/dev/null; then
+        stop_amdprof_pid "$amdprof_pid" "collector exit"
+    fi
+}
+trap cleanup_amdprof EXIT INT TERM
+
+wait_for_amdprof() {
+    local pid="$1"
+    local timeout_sec="$2"
+    local deadline=$(( SECONDS + timeout_sec ))
+    local timed_out=0
+    local state=""
+
+    while kill -0 "$pid" 2>/dev/null; do
+        if [[ -r "/proc/$pid/stat" ]]; then
+            state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)"
+            if [[ "$state" == "Z" ]]; then
+                wait "$pid"
+                return $?
+            fi
+        fi
+
+        if (( timeout_sec > 0 && SECONDS >= deadline )); then
+            timed_out=1
+            stop_amdprof_pid "$pid" "wait timeout ${timeout_sec}s"
+            break
+        fi
+        sleep 0.2
+    done
+
+    wait "$pid" 2>/dev/null
+    local rc=$?
+    if (( timed_out )); then
+        echo "WARN: AMDuProfPcm wait timed out after ${timeout_sec}s; continuing if report files are usable." >&2
+        return 0
+    fi
+    return "$rc"
+}
 
 set +e
 workload_rc=0
@@ -269,7 +338,7 @@ PY
     )
     "${workload_cmd[@]}" > "$OUTDIR/nvbandwidth.out" 2> "$OUTDIR/nvbandwidth.err"
     workload_rc=$?
-    wait "$amdprof_pid"
+    wait_for_amdprof "$amdprof_pid" "$AMDPROF_WAIT_TIMEOUT_SEC"
     amdprof_rc=$?
 else
     "${pcm_cmd[@]}" > "$OUTDIR/amdprof_pcm.out" 2> "$OUTDIR/amdprof_pcm.err"

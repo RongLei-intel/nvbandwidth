@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -u
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 failed=0
 
@@ -18,15 +19,11 @@ run_step() {
 	fi
 }
 
-run_step "enable RO" bash -lc 'bash enable_RO.sh'
+run_step "enable RO" bash enable_RO.sh
+run_step "amd sweep ro_on" env RUN_LABEL=ro_on ONLY_TESTCASE="${ONLY_TESTCASE:-}" bash ./sweep_amd_all.sh
 
-run_step "sweep t16 ro_on" bash -lc 'RUN_LABEL=ro_on bash sweep_amdprof_t16.sh'
-run_step "sweep t33 ro_on" bash -lc 'RUN_LABEL=ro_on bash sweep_amdprof_t33.sh'
-
-run_step "disable RO" bash -lc 'bash disable_RO.sh'
-
-run_step "sweep t16 ro_off" bash -lc 'RUN_LABEL=ro_off bash sweep_amdprof_t16.sh'
-run_step "sweep t33 ro_off" bash -lc 'RUN_LABEL=ro_off bash sweep_amdprof_t33.sh'
+run_step "disable RO" bash disable_RO.sh
+run_step "amd sweep ro_off" env RUN_LABEL=ro_off ONLY_TESTCASE="${ONLY_TESTCASE:-}" bash ./sweep_amd_all.sh
 
 echo
 if [[ $failed -ne 0 ]]; then

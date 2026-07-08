@@ -106,7 +106,7 @@ Set the number of measured memcpy loops per sample with --loopCount, and the num
 
 For the small-buffer KiB sweeps, use the dedicated wrappers:
 - `sweep_intel_small_buffers.sh` for Intel testcase 16 by default, or `sweep_intel_small_buffers_t33.sh` for testcase 33
-- `sweep_amd_small_buffers.sh` for AMD testcase 16 by default, or `sweep_amd_small_buffers_t33.sh` for testcase 33
+- `sweep_amd_all.sh` for AMD config-driven sweep, or use `ONLY_TESTCASE=` to select testcase; orchestrated via `sweep_config_amd.sh`
 - `sweep_intel_small_buffers_all.sh` to run Intel testcase 16 and 33 back-to-back with the longer default transfer budget
 
 The small-buffer wrappers now default to a longer transfer budget so the collector

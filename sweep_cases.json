@@ -3,6 +3,7 @@
     "maxSeconds": 60,
     "minPcmMemorySamples": 2,
     "minPcmPcieSamples": 2,
+    "minRunTimeSeconds": 5,
     "growFactor": 2,
     "shrinkFactor": 2,
     "maxAttempts": 0,
@@ -36,7 +37,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 417792,
+      "loopCount": 208896,
       "buffer": 1,
       "tune": 4
     },
@@ -113,7 +114,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 614400,
+      "loopCount": 1228800,
       "buffer": 2,
       "tune": 32
     },
@@ -146,7 +147,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 104448,
+      "loopCount": 52224,
       "buffer": 4,
       "tune": 16
     },
@@ -157,7 +158,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 1228800,
+      "loopCount": 614400,
       "buffer": 4,
       "tune": 32
     },
@@ -201,7 +202,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 153600,
+      "loopCount": 307200,
       "buffer": 8,
       "tune": 32
     },
@@ -245,7 +246,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 76800,
+      "loopCount": 153600,
       "buffer": 16,
       "tune": 32
     },
@@ -289,7 +290,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 38400,
+      "loopCount": 76800,
       "buffer": 32,
       "tune": 32
     },
@@ -322,7 +323,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 6528,
+      "loopCount": 3264,
       "buffer": 64,
       "tune": 16
     },
@@ -333,7 +334,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 9600,
+      "loopCount": 4800,
       "buffer": 64,
       "tune": 32
     },
@@ -377,7 +378,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 4800,
+      "loopCount": 2400,
       "buffer": 128,
       "tune": 32
     },
@@ -421,7 +422,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 2400,
+      "loopCount": 1200,
       "buffer": 256,
       "tune": 32
     },
@@ -465,7 +466,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 1200,
+      "loopCount": 600,
       "buffer": 512,
       "tune": 32
     },
@@ -498,7 +499,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 408,
+      "loopCount": 204,
       "buffer": 1024,
       "tune": 16
     },
@@ -509,7 +510,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 600,
+      "loopCount": 300,
       "buffer": 1024,
       "tune": 32
     },
@@ -520,7 +521,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 102,
+      "loopCount": 51,
       "buffer": 2048,
       "tune": 4
     },
@@ -531,7 +532,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 204,
+      "loopCount": 102,
       "buffer": 2048,
       "tune": 8
     },
@@ -542,7 +543,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 204,
+      "loopCount": 102,
       "buffer": 2048,
       "tune": 16
     },
@@ -553,7 +554,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 300,
+      "loopCount": 75,
       "buffer": 2048,
       "tune": 32
     },
@@ -575,7 +576,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 8192,
+      "loopCount": 32768,
       "buffer": 1,
       "tune": 16
     },
@@ -586,7 +587,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 8192,
+      "loopCount": 65536,
       "buffer": 1,
       "tune": 32
     },
@@ -608,7 +609,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 4096,
+      "loopCount": 8192,
       "buffer": 2,
       "tune": 16
     },
@@ -619,7 +620,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 4096,
+      "loopCount": 65536,
       "buffer": 2,
       "tune": 32
     },
@@ -630,7 +631,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 2048,
+      "loopCount": 4096,
       "buffer": 4,
       "tune": 8
     },
@@ -641,7 +642,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 2048,
+      "loopCount": 8192,
       "buffer": 4,
       "tune": 16
     },
@@ -652,7 +653,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 2048,
+      "loopCount": 16384,
       "buffer": 4,
       "tune": 32
     },
@@ -663,7 +664,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 1024,
+      "loopCount": 2048,
       "buffer": 8,
       "tune": 8
     },
@@ -674,7 +675,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 1024,
+      "loopCount": 4096,
       "buffer": 8,
       "tune": 16
     },
@@ -685,7 +686,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 1024,
+      "loopCount": 8192,
       "buffer": 8,
       "tune": 32
     },
@@ -696,7 +697,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 512,
+      "loopCount": 1024,
       "buffer": 16,
       "tune": 8
     },
@@ -707,7 +708,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 512,
+      "loopCount": 2048,
       "buffer": 16,
       "tune": 16
     },
@@ -718,7 +719,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 512,
+      "loopCount": 4096,
       "buffer": 16,
       "tune": 32
     },
@@ -729,7 +730,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 256,
+      "loopCount": 512,
       "buffer": 32,
       "tune": 8
     },
@@ -740,7 +741,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 256,
+      "loopCount": 1024,
       "buffer": 32,
       "tune": 16
     },
@@ -751,7 +752,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 256,
+      "loopCount": 2048,
       "buffer": 32,
       "tune": 32
     },
@@ -762,7 +763,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 128,
+      "loopCount": 256,
       "buffer": 64,
       "tune": 8
     },
@@ -773,7 +774,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 128,
+      "loopCount": 512,
       "buffer": 64,
       "tune": 16
     },
@@ -784,7 +785,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 128,
+      "loopCount": 1024,
       "buffer": 64,
       "tune": 32
     },
@@ -795,7 +796,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 64,
+      "loopCount": 128,
       "buffer": 128,
       "tune": 8
     },
@@ -806,7 +807,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 64,
+      "loopCount": 256,
       "buffer": 128,
       "tune": 16
     },
@@ -817,7 +818,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 64,
+      "loopCount": 512,
       "buffer": 128,
       "tune": 32
     },
@@ -828,7 +829,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 32,
+      "loopCount": 64,
       "buffer": 256,
       "tune": 8
     },
@@ -839,7 +840,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 32,
+      "loopCount": 128,
       "buffer": 256,
       "tune": 16
     },
@@ -850,7 +851,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 32,
+      "loopCount": 256,
       "buffer": 256,
       "tune": 32
     },
@@ -883,7 +884,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 16,
+      "loopCount": 32,
       "buffer": 512,
       "tune": 32
     },
@@ -916,7 +917,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 16,
+      "loopCount": 8,
       "buffer": 1024,
       "tune": 32
     },
@@ -993,7 +994,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 1671168,
+      "loopCount": 835584,
       "buffer": 256,
       "tune": 16
     },
@@ -1092,7 +1093,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 19660800,
+      "loopCount": 9830400,
       "buffer": 64,
       "tune": 32
     },
@@ -1103,7 +1104,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 13369344,
+      "loopCount": 6684672,
       "buffer": 32,
       "tune": 4
     },
@@ -1114,7 +1115,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 13369344,
+      "loopCount": 6684672,
       "buffer": 32,
       "tune": 8
     },
@@ -1125,7 +1126,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 13369344,
+      "loopCount": 6684672,
       "buffer": 32,
       "tune": 16
     },
@@ -1136,7 +1137,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 39321600,
+      "loopCount": 9830400,
       "buffer": 32,
       "tune": 32
     },
@@ -1147,7 +1148,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 2048,
+      "loopCount": 16384,
       "buffer": 512,
       "tune": 8
     },
@@ -1158,7 +1159,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 2048,
+      "loopCount": 16384,
       "buffer": 512,
       "tune": 16
     },
@@ -1169,7 +1170,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 4096,
+      "loopCount": 65536,
       "buffer": 512,
       "tune": 32
     },
@@ -1180,7 +1181,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 4096,
+      "loopCount": 16384,
       "buffer": 256,
       "tune": 8
     },
@@ -1191,7 +1192,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 4096,
+      "loopCount": 16384,
       "buffer": 256,
       "tune": 16
     },
@@ -1202,7 +1203,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 4096,
+      "loopCount": 65536,
       "buffer": 256,
       "tune": 32
     },
@@ -1235,7 +1236,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 8192,
+      "loopCount": 65536,
       "buffer": 128,
       "tune": 32
     },
@@ -1268,7 +1269,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 1048576,
+      "loopCount": 16777216,
       "buffer": 64,
       "tune": 32
     },
@@ -1301,7 +1302,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 131072,
+      "loopCount": 65536,
       "buffer": 32,
       "tune": 32
     }
