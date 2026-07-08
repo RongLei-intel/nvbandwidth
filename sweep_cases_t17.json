@@ -1,8 +1,8 @@
 {
   "global": {
     "maxSeconds": 60,
-    "minPcmMemorySamples": 2,
-    "minPcmPcieSamples": 2,
+    "minPcmMemorySamples": 10,
+    "minPcmPcieSamples": 10,
     "minRunTimeSeconds": 5,
     "growFactor": 2,
     "shrinkFactor": 2,
