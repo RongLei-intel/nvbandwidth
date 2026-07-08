@@ -11,7 +11,7 @@
   },
   "collectorDefaults": {
     "NVBANDWIDTH_BIN": "./nvbandwidth",
-    "CUDA_VISIBLE_DEVICES": "2",
+    "CUDA_VISIBLE_DEVICES": "0",
     "NUMA_NODE": "0",
     "CPU_BIND": "1",
     "TEST_SAMPLES": "",
@@ -69,7 +69,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 1228800,
+      "loopCount": 2457600,
       "buffer": 1,
       "tune": 32
     },
@@ -157,7 +157,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 307200,
+      "loopCount": 1228800,
       "buffer": 4,
       "tune": 32
     },
@@ -333,7 +333,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 19200,
+      "loopCount": 9600,
       "buffer": 64,
       "tune": 32
     },
@@ -377,7 +377,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 9600,
+      "loopCount": 4800,
       "buffer": 128,
       "tune": 32
     },
@@ -421,7 +421,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 4800,
+      "loopCount": 2400,
       "buffer": 256,
       "tune": 32
     },
@@ -465,7 +465,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 2400,
+      "loopCount": 1200,
       "buffer": 512,
       "tune": 32
     },
@@ -476,7 +476,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 408,
+      "loopCount": 204,
       "buffer": 1024,
       "tune": 4
     },
@@ -509,7 +509,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 1200,
+      "loopCount": 600,
       "buffer": 1024,
       "tune": 32
     },
@@ -520,7 +520,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 204,
+      "loopCount": 102,
       "buffer": 2048,
       "tune": 4
     },
@@ -553,7 +553,7 @@
       "bufferUnit": "MiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 600,
+      "loopCount": 300,
       "buffer": 2048,
       "tune": 32
     },
@@ -960,7 +960,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 2457600,
+      "loopCount": 4915200,
       "buffer": 512,
       "tune": 32
     },
@@ -1004,7 +1004,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "smCopyBytes",
       "tuneFlag": "--smCopyBytes",
-      "loopCount": 4915200,
+      "loopCount": 19660800,
       "buffer": 256,
       "tune": 32
     },
@@ -1301,7 +1301,7 @@
       "bufferUnit": "KiB",
       "tuneArg": "ptrChaseLoadBytes",
       "tuneFlag": "--ptrChaseLoadBytes",
-      "loopCount": 32768,
+      "loopCount": 131072,
       "buffer": 32,
       "tune": 32
     }

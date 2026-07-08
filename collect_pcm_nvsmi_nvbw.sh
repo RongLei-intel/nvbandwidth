@@ -515,6 +515,11 @@ def load_pcm_pcie():
             current.append(dict(zip(header, row)))
     if current:
         samples.append(current)
+    try:
+        pcie_interval_s = float(sample_interval)
+    except (ValueError, TypeError):
+        pcie_interval_s = 1.0
+
     totals = defaultdict(list)
     per_socket = defaultdict(lambda: defaultdict(list))
     for sample in samples:
@@ -528,9 +533,10 @@ def load_pcm_pcie():
                 sample_totals[key] += val
                 per_socket[skt][key].append(val)
         for key, val in sample_totals.items():
-            totals[key].append(val)
+            totals[key].append(val / pcie_interval_s)
         if "PCIe Rd (B)" in sample_totals or "PCIe Wr (B)" in sample_totals:
-            totals["PCIe Total (B)"].append(sample_totals.get("PCIe Rd (B)", 0.0) + sample_totals.get("PCIe Wr (B)", 0.0))
+            totals["PCIe Total (B)"].append(
+                (sample_totals.get("PCIe Rd (B)", 0.0) + sample_totals.get("PCIe Wr (B)", 0.0)) / pcie_interval_s)
     return totals, per_socket, len(samples)
 
 

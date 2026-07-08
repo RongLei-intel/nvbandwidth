@@ -2,6 +2,10 @@
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
+export CUDA_VISIBLE_DEVICES=0
+export NUMA_NODE=0
+export CPU_BIND=1
+
 failed=0
 
 run_step() {

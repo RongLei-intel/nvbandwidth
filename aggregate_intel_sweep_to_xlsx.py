@@ -206,9 +206,34 @@ def main() -> int:
     next_row = ws.max_row + 1
     print(f"Appending {len(rows)} rows starting at row {next_row}")
 
+    numeric_cols = {
+        "per_load_bytes", "buffer_MiB", "repeat_count", "loop_count",
+        "nvbandwidth_gbps", "memory_read_gbps", "memory_gbps",
+        "pcie_read_gbps", "pcie_gbps", "gpu_pcie_gbps",
+        "target_socket_mem_read_gbps",
+        "pcm_memory_samples", "pcm_pcie_samples", "nvidia_dmon_rows",
+        "run_seconds",
+    }
+
+    def to_value(raw):
+        if raw is None:
+            return None
+        s = str(raw).strip()
+        if s == "" or s.lower() in {"none", "n/a", "na"}:
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            try:
+                return float(s)
+            except ValueError:
+                return raw
+
     for i, row in enumerate(rows):
         for j, col_name in enumerate(COLUMNS):
-            ws.cell(row=next_row + i, column=j + 1, value=row.get(col_name, ""))
+            raw = row.get(col_name, "")
+            ws.cell(row=next_row + i, column=j + 1,
+                    value=to_value(raw) if col_name in numeric_cols else str(raw) if raw else "")
 
     wb.save(args.xlsx)
     print(f"Saved {args.xlsx}")
