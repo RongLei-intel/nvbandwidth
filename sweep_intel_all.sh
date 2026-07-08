@@ -19,6 +19,7 @@ min_pcie_samples="$(json_query global.minPcmPcieSamples)"
 grow_factor="$(json_query global.growFactor)"
 shrink_factor="$(json_query global.shrinkFactor)"
 max_attempts_num="$(json_query global.maxAttempts)"
+min_run_seconds="$(json_query global.minRunTimeSeconds)"
 min_loop_count="$(json_query global.minLoopCount)"
 max_loop_count="$(json_query global.maxLoopCount)"
 
@@ -30,6 +31,7 @@ export SWEEP_CASE_SHRINK_FACTOR="$shrink_factor"
 export SWEEP_CASE_MAX_ATTEMPTS="$max_attempts_num"
 export SWEEP_CASE_MIN_LOOP_COUNT="$min_loop_count"
 export SWEEP_CASE_MAX_LOOP_COUNT="$max_loop_count"
+export SWEEP_CASE_MIN_RUN_TIME_SECONDS="$min_run_seconds"
 
 failed=0
 json_expand_cases

@@ -226,6 +226,7 @@ grow_factor = max(2, int(os.environ.get('SWEEP_CASE_GROW_FACTOR', '2')))
 shrink_factor = max(2, int(os.environ.get('SWEEP_CASE_SHRINK_FACTOR', '2')))
 min_loop_count = int(os.environ.get('SWEEP_CASE_MIN_LOOP_COUNT', '1'))
 max_loop_count = int(os.environ.get('SWEEP_CASE_MAX_LOOP_COUNT', '1000000000'))
+min_run_seconds = int(os.environ.get('SWEEP_CASE_MIN_RUN_TIME_SECONDS', '5'))
 
 def parse_float(value):
     if value is None:
@@ -377,6 +378,10 @@ if run_seconds is None:
 elif run_seconds >= max_seconds:
     reasons.append(f'run_seconds={run_seconds}s>={max_seconds}s')
     direction = 'shrink'
+elif run_seconds < min_run_seconds:
+    reasons.append(f'run_seconds={run_seconds}s<{min_run_seconds}s')
+    if not direction:
+        direction = 'grow'
 
 if memory_samples < min_mem_samples:
     reasons.append(f'pcm_memory_samples={memory_samples}<{min_mem_samples}')
