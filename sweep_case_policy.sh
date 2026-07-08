@@ -107,7 +107,7 @@ import sys
 
 path = sys.argv[1]
 only_testcase = os.environ.get('ONLY_TESTCASE', '').strip()
-if only_testcase and only_testcase not in {'16', '33'}:
+if only_testcase and only_testcase not in {'16', '33', '17'}:
     raise SystemExit(f'ONLY_TESTCASE must be 16 or 33, got {only_testcase!r}')
 
 with open(path, 'r', encoding='utf-8') as fh:
