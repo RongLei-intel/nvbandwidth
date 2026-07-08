@@ -357,9 +357,13 @@ elif nvbw_rc not in {'', '0'}:
 memory, memory_samples = load_pcm_memory()
 pcie, pcie_samples = load_pcm_pcie()
 mem_read_median = median(memory.get('System.Read', []))
+mem_write_median = median(memory.get('System.Write', []))
 mem_total_median = median(memory.get('System.Memory', []))
+
 pcie_read_values = pcie.get('PCIe Rd (B)', [])
+pcie_write_values = pcie.get('PCIe Wr (B)', [])
 pcie_read_max = max(pcie_read_values) if pcie_read_values else None
+pcie_write_max = max(pcie_write_values) if pcie_write_values else None
 
 reasons = []
 direction = ''
@@ -378,18 +382,29 @@ if memory_samples < min_mem_samples:
     reasons.append(f'pcm_memory_samples={memory_samples}<{min_mem_samples}')
 if pcie_samples < min_pcie_samples:
     reasons.append(f'pcm_pcie_samples={pcie_samples}<{min_pcie_samples}')
-if mem_read_median is None:
-    reasons.append('system_mem_read_median_GBps missing')
-elif mem_read_median <= 0:
-    reasons.append('system_mem_read_median_GBps=0')
+
+has_mem = (mem_read_median is not None and mem_read_median > 0) or (mem_write_median is not None and mem_write_median > 0)
+if not has_mem:
+    if mem_read_median is not None:
+        reasons.append('system_mem_read_median_GBps=0')
+    if mem_write_median is not None:
+        reasons.append('system_mem_write_median_GBps=0')
+    if mem_read_median is None and mem_write_median is None:
+        reasons.append('system_mem_bandwidth_GBps missing')
+
 if mem_total_median is None:
     reasons.append('system_mem_total_median_GBps missing')
 elif mem_total_median <= 0:
     reasons.append('system_mem_total_median_GBps=0')
-if pcie_read_max is None:
-    reasons.append('system_pcie_read_max_GBps missing')
-elif pcie_read_max <= 0.001:
-    reasons.append('system_pcie_read_max_GBps<=0.001')
+
+has_pcie = (pcie_read_max is not None and pcie_read_max > 0.001) or (pcie_write_max is not None and pcie_write_max > 0.001)
+if not has_pcie:
+    if pcie_read_max is not None:
+        reasons.append('system_pcie_read_max_GBps<=0.001')
+    if pcie_write_max is not None:
+        reasons.append('system_pcie_write_max_GBps<=0.001')
+    if pcie_read_max is None and pcie_write_max is None:
+        reasons.append('system_pcie_bandwidth_GBps missing')
 
 if not reasons:
     print('status=ok')

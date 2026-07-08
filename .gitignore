@@ -9,6 +9,9 @@ nvbandwidth
 amdprof_*/
 perf_*/
 latency_*_sweep_*/
+out*
+*.csv
+*.xlsx
 
 # Local profiling artifacts
 *.out

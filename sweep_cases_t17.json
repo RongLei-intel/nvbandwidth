@@ -1,0 +1,130 @@
+{
+  "global": {
+    "maxSeconds": 60,
+    "minPcmMemorySamples": 2,
+    "minPcmPcieSamples": 2,
+    "minRunTimeSeconds": 5,
+    "growFactor": 2,
+    "shrinkFactor": 2,
+    "maxAttempts": 0,
+    "minLoopCount": 1,
+    "maxLoopCount": 40000000
+  },
+  "collectorDefaults": {
+    "NVBANDWIDTH_BIN": "./nvbandwidth",
+    "CUDA_VISIBLE_DEVICES": "0",
+    "NUMA_NODE": "0",
+    "CPU_BIND": "1",
+    "TEST_SAMPLES": "",
+    "HOST_READ_PARALLELISM": "",
+    "LATENCY_STRIDE_LEN": "",
+    "SKIP_VERIFICATION": "1",
+    "VERBOSE_NVBW": "0",
+    "SAMPLE_INTERVAL": "0.1",
+    "NVIDIA_QUERY_INTERVAL": "1",
+    "NVIDIA_DMON_INTERVAL": "1",
+    "PCM_TOOLS": "pcm-memory pcm-pcie",
+    "INCLUDE_NVIDIA_QUERY": "1",
+    "INCLUDE_NVIDIA_DMON": "1",
+    "INCLUDE_NVIDIA_PMON": "0",
+    "INCLUDE_NVIDIA_APPS": "0"
+  },
+  "cases": [
+    {
+      "name": "t17_mib_b1MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 1,
+      "loopCount": 200000
+    },
+    {
+      "name": "t17_mib_b2MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 2,
+      "loopCount": 100000
+    },
+    {
+      "name": "t17_mib_b4MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 4,
+      "loopCount": 50000
+    },
+    {
+      "name": "t17_mib_b8MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 8,
+      "loopCount": 25000
+    },
+    {
+      "name": "t17_mib_b16MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 16,
+      "loopCount": 12500
+    },
+    {
+      "name": "t17_mib_b32MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 32,
+      "loopCount": 6250
+    },
+    {
+      "name": "t17_mib_b64MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 64,
+      "loopCount": 3125
+    },
+    {
+      "name": "t17_mib_b128MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 128,
+      "loopCount": 1562
+    },
+    {
+      "name": "t17_mib_b256MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 256,
+      "loopCount": 781
+    },
+    {
+      "name": "t17_mib_b512MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 512,
+      "loopCount": 391
+    },
+    {
+      "name": "t17_mib_b1024MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 1024,
+      "loopCount": 195
+    },
+    {
+      "name": "t17_mib_b2048MiB",
+      "enabled": true,
+      "testcase": 17,
+      "bufferUnit": "MiB",
+      "buffer": 2048,
+      "loopCount": 98
+    }
+  ]
+}
