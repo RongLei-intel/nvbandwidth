@@ -85,35 +85,83 @@ void memclearByWarpParity(CUstream stream, CUdeviceptr buffer, unsigned long lon
     CU_ASSERT(nodeHelper->streamSynchronizeWrapper(CU_STREAM_PER_THREAD));
 }
 
+static void cpuMemsetPatternHelper(void* hostBuffer, size_t size, unsigned int seed) {
+    unsigned int* h_pattern = (unsigned int*)malloc(_2MiB);
+    xorshift2MBPattern(h_pattern, seed);
+
+    unsigned char* dst = (unsigned char*)hostBuffer;
+    size_t remaining = size;
+    while (remaining > 0) {
+        size_t chunk = std::min((size_t)_2MiB, remaining);
+        memcpy(dst, h_pattern, chunk);
+        dst += chunk;
+        remaining -= chunk;
+    }
+
+    free(h_pattern);
+}
+
 void MemcpyInitiatorCE::memsetPattern(MemcpyDispatchInfo &info) const {
     for (int i = 0; i < info.srcBuffers.size(); i++) {
         CU_ASSERT(cuCtxSetCurrent(info.contexts[i]));
-        memsetPatternHelper(info.streams[i], info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xCAFEBABE, info.nodeHelper);
-        memsetPatternHelper(info.streams[i], info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
+        if (!useGpuForHostInit && info.dstBuffers[i]->isHostBuffer()) {
+            cpuMemsetPatternHelper((void*)(uintptr_t)info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xCAFEBABE);
+        } else {
+            memsetPatternHelper(info.streams[i], info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xCAFEBABE, info.nodeHelper);
+        }
+        if (!useGpuForHostInit && info.srcBuffers[i]->isHostBuffer()) {
+            cpuMemsetPatternHelper((void*)(uintptr_t)info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D);
+        } else {
+            memsetPatternHelper(info.streams[i], info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
+        }
     }
 }
 
 void MemcpyInitiatorSM::memsetPattern(MemcpyDispatchInfo &info) const {
     for (int i = 0; i < info.srcBuffers.size(); i++) {
         CU_ASSERT(cuCtxSetCurrent(info.contexts[i]));
-        memsetPatternHelper(info.streams[i], info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xCAFEBABE, info.nodeHelper);
-        memsetPatternHelper(info.streams[i], info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
+        if (!useGpuForHostInit && info.dstBuffers[i]->isHostBuffer()) {
+            cpuMemsetPatternHelper((void*)(uintptr_t)info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xCAFEBABE);
+        } else {
+            memsetPatternHelper(info.streams[i], info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xCAFEBABE, info.nodeHelper);
+        }
+        if (!useGpuForHostInit && info.srcBuffers[i]->isHostBuffer()) {
+            cpuMemsetPatternHelper((void*)(uintptr_t)info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D);
+        } else {
+            memsetPatternHelper(info.streams[i], info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
+        }
     }
 }
 
 void MemcpyInitiatorMulticastWrite::memsetPattern(MemcpyDispatchInfo &info) const {
     for (int i = 0; i < info.srcBuffers.size(); i++) {
         CU_ASSERT(cuCtxSetCurrent(info.contexts[i]));
-        memsetPatternHelper(info.streams[i], info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xCAFEBABE, info.nodeHelper);
-        memsetPatternHelper(info.streams[i], info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
+        if (!useGpuForHostInit && info.dstBuffers[i]->isHostBuffer()) {
+            cpuMemsetPatternHelper((void*)(uintptr_t)info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xCAFEBABE);
+        } else {
+            memsetPatternHelper(info.streams[i], info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xCAFEBABE, info.nodeHelper);
+        }
+        if (!useGpuForHostInit && info.srcBuffers[i]->isHostBuffer()) {
+            cpuMemsetPatternHelper((void*)(uintptr_t)info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D);
+        } else {
+            memsetPatternHelper(info.streams[i], info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
+        }
     }
 }
 
 void MemcpyInitiatorSMSplitWarp::memsetPattern(MemcpyDispatchInfo &info) const {
     for (int i = 0; i < info.srcBuffers.size(); i++) {
         CU_ASSERT(cuCtxSetCurrent(info.contexts[i]));
-        memsetPatternHelper(info.streams[i], info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
-        memsetPatternHelper(info.streams[i], info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
+        if (!useGpuForHostInit && info.dstBuffers[i]->isHostBuffer()) {
+            cpuMemsetPatternHelper((void*)(uintptr_t)info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D);
+        } else {
+            memsetPatternHelper(info.streams[i], info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
+        }
+        if (!useGpuForHostInit && info.srcBuffers[i]->isHostBuffer()) {
+            cpuMemsetPatternHelper((void*)(uintptr_t)info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D);
+        } else {
+            memsetPatternHelper(info.streams[i], info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], 0xBAADF00D, info.nodeHelper);
+        }
         memclearByWarpParity(info.streams[i], info.dstBuffers[i]->getBuffer(), info.adjustedCopySizes[i], true /* clearOddWarpIndexed */, info.nodeHelper);
         memclearByWarpParity(info.streams[i], info.srcBuffers[i]->getBuffer(), info.adjustedCopySizes[i], false /* clearOddWarpIndexed */, info.nodeHelper);
     }

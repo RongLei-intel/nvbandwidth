@@ -71,6 +71,7 @@ extern bool verbose;
 extern bool perfFormatter;
 extern bool useHugePages;
 extern bool flushHostCache;
+extern bool useGpuForHostInit;
 
 #ifdef MULTINODE
 extern int localDevice;

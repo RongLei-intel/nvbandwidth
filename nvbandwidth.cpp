@@ -51,6 +51,7 @@ bool useMean;
 bool perfFormatter;
 bool useHugePages;
 bool flushHostCache;
+bool useGpuForHostInit;
 long long targetNumPairs;
 
 Verbosity VERBOSE(verbose);
@@ -240,6 +241,7 @@ int main(int argc, char **argv) {
         ("useMean,m", opt::bool_switch(&useMean)->default_value(false), "Use mean instead of median for results")
         ("useHugePages,H",  opt::bool_switch(&useHugePages)->default_value(false), "Use huge pages for host allocations.")
         ("flushHostCache", opt::bool_switch(&flushHostCache)->default_value(false), "Flush the host_device_latency_sm host buffer from CPU cache after pointer-chain initialization.")
+        ("hostInitCpu", opt::bool_switch(&useGpuForHostInit)->default_value(true)->implicit_value(false), "Use CPU (not GPU) to initialize host buffer patterns. Default is GPU-based init. Specify to switch to CPU.")
         ("json,j", opt::bool_switch(&jsonOutput)->default_value(false), "Print output in json format instead of plain text.");
 
     opt::options_description all_opts("");

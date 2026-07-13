@@ -10,6 +10,8 @@ amdprof_*/
 perf_*/
 latency_*_sweep_*/
 out*
+!output.cpp
+!output.h
 *.csv
 *.xlsx
 

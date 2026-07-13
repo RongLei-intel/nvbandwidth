@@ -38,6 +38,7 @@ class MemcpyBuffer {
     // For more details see https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/mpi.html#mpi-progress
     virtual CUresult streamSynchronizeWrapper(CUstream stream) const;
     virtual int getMPIRank() const;
+    virtual bool isHostBuffer() const { return false; }
 };
 
 // Represents the host buffer abstraction
@@ -51,6 +52,7 @@ class HostBuffer : public MemcpyBuffer {
     int getBufferIdx() const override;
     CUcontext getPrimaryCtx() const override;
     virtual std::string getBufferString() const override;
+    bool isHostBuffer() const override { return true; }
 };
 
 // Represents the device buffer and context abstraction
