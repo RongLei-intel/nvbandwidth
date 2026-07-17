@@ -1,13 +1,13 @@
-bash sweep_config_t17.sh
+ONLY_TESTCASE=16 bash sweep_config.sh
 
 sleep 5s
 
-mv out out_7_9_v1
+mv out out_7_13_v1
 
-bash sweep_config_t17.sh
+ONLY_TESTCASE=16 bash sweep_config.sh
 
-mv out out_7_9_v2
+mv out out_7_13_v2
 
-bash sweep_config_t17.sh
+ONLY_TESTCASE=16 bash sweep_config.sh
 
-mv out out_7_9_v3
+mv out out_7_13_v3

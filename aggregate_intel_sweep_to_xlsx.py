@@ -18,13 +18,17 @@ CASE_NAME_RE = re.compile(
     r"(?P<param_prefix>tsmCopyBytes|tptrChaseLoadBytes)(?P<param_val>\d+)$"
 )
 
+CASE_NAME_SIMPLE_RE = re.compile(
+    r"^t(?P<testcase>\d+)_(?P<unit>kib|mib)_b(?P<buf_num>\d+)(?P<buf_unit>KiB|MiB)$"
+)
+
 COLUMNS = [
-    "data_source", "system", "testcase", "run_label", "ro_state", "config_tag",
+    "data_source", "system", "testcase", "run_label", "ro_state", "io_cache_way",
     "tuning_param_name", "per_load_bytes", "buffer_MiB", "repeat_count", "statuses",
     "source_kind", "source_file", "source_note", "loop_count", "nvbandwidth_gbps",
     "memory_read_gbps", "memory_gbps", "pcie_read_gbps", "pcie_gbps", "gpu_pcie_gbps",
     "target_socket_mem_read_gbps", "pcm_memory_samples", "pcm_pcie_samples",
-    "nvidia_dmon_rows", "run_seconds",
+    "nvidia_dmon_rows", "run_seconds", "pcie_write_gbps", "hostbuffer_init",
 ]
 
 
@@ -66,31 +70,46 @@ def parse_row_count(content: str, section_pattern: str, label: str) -> str:
 
 
 def parse_case_name(dirname: str) -> dict[str, str]:
+    # Try full format with tuning param suffix first
     m = CASE_NAME_RE.match(dirname)
-    if not m:
-        return {}
-    d = m.groupdict()
-    buf_val = float(d["buf_num"])
-    buf_unit = d["buf_unit"]
-    buffer_mib = buf_val if buf_unit == "MiB" else buf_val / 1024.0
+    if m:
+        d = m.groupdict()
+        buf_val = float(d["buf_num"])
+        buf_unit = d["buf_unit"]
+        buffer_mib = buf_val if buf_unit == "MiB" else buf_val / 1024.0
+        param_prefix = d["param_prefix"]
+        if param_prefix == "tsmCopyBytes":
+            tuning_name = "sm_copy_bytes"
+        elif param_prefix == "tptrChaseLoadBytes":
+            tuning_name = "ptr_chase_load_bytes"
+        else:
+            tuning_name = param_prefix
+        testcase_num = d["testcase"]
+        testcase_label = "Sequential" if testcase_num in ("16", "17") else "Random"
+        return {
+            "testcase": testcase_label,
+            "tuning_param_name": tuning_name,
+            "per_load_bytes": d["param_val"],
+            "buffer_MiB": str(buffer_mib),
+        }
 
-    param_prefix = d["param_prefix"]
-    if param_prefix == "tsmCopyBytes":
-        tuning_name = "sm_copy_bytes"
-    elif param_prefix == "tptrChaseLoadBytes":
-        tuning_name = "ptr_chase_load_bytes"
-    else:
-        tuning_name = param_prefix
+    # Try simple format (no tuning param, e.g. t17_mib_b1MiB)
+    m = CASE_NAME_SIMPLE_RE.match(dirname)
+    if m:
+        d = m.groupdict()
+        buf_val = float(d["buf_num"])
+        buf_unit = d["buf_unit"]
+        buffer_mib = buf_val if buf_unit == "MiB" else buf_val / 1024.0
+        testcase_num = d["testcase"]
+        testcase_label = "Sequential" if testcase_num in ("16", "17") else "Random"
+        return {
+            "testcase": testcase_label,
+            "tuning_param_name": "",
+            "per_load_bytes": "",
+            "buffer_MiB": str(buffer_mib),
+        }
 
-    testcase_num = d["testcase"]
-    testcase_label = "Sequential" if testcase_num == "16" else "Random"
-
-    return {
-        "testcase": testcase_label,
-        "tuning_param_name": tuning_name,
-        "per_load_bytes": d["param_val"],
-        "buffer_MiB": str(buffer_mib),
-    }
+    return {}
 
 
 def parse_run_label(dirpath: str) -> dict[str, str]:
@@ -98,14 +117,16 @@ def parse_run_label(dirpath: str) -> dict[str, str]:
     run_label = parts[-2] if len(parts) >= 2 else ""
     if run_label.startswith("ro_on_"):
         ro_state = "on"
-        config_tag = run_label[len("ro_on_"):]
+        raw_tag = run_label[len("ro_on_"):]
     elif run_label.startswith("ro_off_"):
         ro_state = "off"
-        config_tag = run_label[len("ro_off_"):]
+        raw_tag = run_label[len("ro_off_"):]
     else:
         ro_state = ""
-        config_tag = ""
-    return {"run_label": run_label, "ro_state": ro_state, "config_tag": config_tag}
+        raw_tag = ""
+    io_cache_way = raw_tag.replace("_cpuinit", "")
+    hostbuffer_init = "cpu" if "cpuinit" in run_label.lower() else "gpu"
+    return {"run_label": run_label, "ro_state": ro_state, "io_cache_way": io_cache_way, "hostbuffer_init": hostbuffer_init}
 
 
 def parse_summary_file(filepath: str, root_dir: str) -> dict[str, str] | None:
@@ -126,11 +147,14 @@ def parse_summary_file(filepath: str, root_dir: str) -> dict[str, str] | None:
 
     nvbandwidth_gbps = parse_table_metric(content, "## nvbandwidth", "host_to_device_memcpy_sm")
     if not nvbandwidth_gbps:
+        nvbandwidth_gbps = parse_table_metric(content, "## nvbandwidth", "device_to_host_memcpy_sm")
+    if not nvbandwidth_gbps:
         nvbandwidth_gbps = parse_table_metric(content, "## nvbandwidth", "host_device_bandwidth_sm")
 
     memory_read_gbps = parse_table_metric(content, "## PCM memory bandwidth", "System.Read")
     memory_gbps = parse_table_metric(content, "## PCM memory bandwidth", "System.Memory")
     pcie_read_gbps = parse_table_metric(content, "## PCM PCIe bandwidth", "System PCIe Rd (B)")
+    pcie_write_gbps = parse_table_metric(content, "## PCM PCIe bandwidth", "System PCIe Wr (B)")
     pcie_gbps = parse_table_metric(content, "## PCM PCIe bandwidth", "System PCIe Total (B)")
     gpu_pcie_gbps = parse_table_metric(content, "## NVIDIA dmon GPU telemetry", "All GPUs rxpci+txpci")
     target_socket_mem_read_gbps = parse_table_metric(
@@ -160,6 +184,7 @@ def parse_summary_file(filepath: str, root_dir: str) -> dict[str, str] | None:
         "memory_read_gbps": memory_read_gbps,
         "memory_gbps": memory_gbps,
         "pcie_read_gbps": pcie_read_gbps,
+        "pcie_write_gbps": pcie_write_gbps,
         "pcie_gbps": pcie_gbps,
         "gpu_pcie_gbps": gpu_pcie_gbps,
         "target_socket_mem_read_gbps": target_socket_mem_read_gbps,
@@ -209,7 +234,7 @@ def main() -> int:
     numeric_cols = {
         "per_load_bytes", "buffer_MiB", "repeat_count", "loop_count",
         "nvbandwidth_gbps", "memory_read_gbps", "memory_gbps",
-        "pcie_read_gbps", "pcie_gbps", "gpu_pcie_gbps",
+        "pcie_read_gbps", "pcie_write_gbps", "pcie_gbps", "gpu_pcie_gbps",
         "target_socket_mem_read_gbps",
         "pcm_memory_samples", "pcm_pcie_samples", "nvidia_dmon_rows",
         "run_seconds",

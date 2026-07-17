@@ -22,3 +22,12 @@ out*
 *.sqlite
 *.dat
 .stat
+
+# Sweep result logs
+nvbw_all_results/
+
+# Editor / tooling
+.kilo/
+.vscode/
+__pycache__/
+*.bak

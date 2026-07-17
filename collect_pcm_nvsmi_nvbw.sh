@@ -403,17 +403,27 @@ def parse_float(value):
         return None
 
 
-def stats(values):
+def stats(values, min_value=None):
     vals = [float(v) for v in values if v is not None]
     if not vals:
         return None
-    return {
+    result = {
         "count": len(vals),
         "avg": statistics.fmean(vals),
         "max": max(vals),
         "min": min(vals),
         "last": vals[-1],
     }
+    if min_value is not None:
+        threshold = max(result["max"] * 0.01, 1.0)
+        active = [v for v in vals if v > threshold]
+        if active:
+            result["active_avg"] = statistics.fmean(active)
+            result["active_count"] = len(active)
+        else:
+            result["active_avg"] = 0.0
+            result["active_count"] = 0
+    return result
 
 
 def fmt(value, digits=3):
@@ -426,8 +436,9 @@ def stat_line(label, stat, unit="", scale=1.0, digits=3):
     if not stat:
         return f"| {label} | NA | NA | NA | NA | 0 |"
     suffix = f" {unit}" if unit else ""
+    avg = stat.get("active_avg", stat["avg"])
     return (
-        f"| {label} | {fmt(stat['avg'] / scale, digits)}{suffix} | "
+        f"| {label} | {fmt(avg / scale, digits)}{suffix} | "
         f"{fmt(stat['max'] / scale, digits)}{suffix} | "
         f"{fmt(stat['last'] / scale, digits)}{suffix} | "
         f"{fmt(stat['min'] / scale, digits)}{suffix} | {stat['count']} |"
@@ -680,11 +691,11 @@ if mem:
     print("|---|---:|---:|---:|---:|---:|")
     for key in ["System.Read", "System.Write", "System.Memory", "SKT0.Mem Read (MB/s)", "SKT0.Mem Write (MB/s)", "SKT0.Memory (MB/s)", "SKT1.Mem Read (MB/s)", "SKT1.Mem Write (MB/s)", "SKT1.Memory (MB/s)"]:
         if key in metrics:
-            print(stat_line(key, stats(metrics[key]), "GB/s", scale=1000.0, digits=3))
+            print(stat_line(key, stats(metrics[key], min_value=0), "GB/s", scale=1000.0, digits=3))
     channel_stats = []
     for key, vals in metrics.items():
         if re.search(r"SKT\d+\.Ch\d+(Read|Write)$", key):
-            st = stats(vals)
+            st = stats(vals, min_value=0)
             if st:
                 channel_stats.append((st["max"], key, st))
     if channel_stats:
@@ -710,7 +721,7 @@ if pcie:
     print("|---|---:|---:|---:|---:|---:|")
     for key in ["PCIe Rd (B)", "PCIe Wr (B)", "PCIe Total (B)"]:
         if key in totals:
-            print(stat_line(f"System {key}", stats(totals[key]), "GB/s", scale=1e9, digits=3))
+            print(stat_line(f"System {key}", stats(totals[key], min_value=1e6), "GB/s", scale=1e9, digits=3))
     for skt in sorted(per_socket, key=lambda x: int(x) if str(x).isdigit() else str(x)):
         for key in ["PCIe Rd (B)", "PCIe Wr (B)"]:
             if key in per_socket[skt]:
@@ -728,11 +739,11 @@ if dmon:
     print()
     print("| metric | avg | max | last | min | samples |")
     print("|---|---:|---:|---:|---:|---:|")
-    print(stat_line("All GPUs rxpci", stats(agg.get("rxpci", [])), "GB/s", scale=1000.0, digits=3))
-    print(stat_line("All GPUs txpci", stats(agg.get("txpci", [])), "GB/s", scale=1000.0, digits=3))
-    print(stat_line("All GPUs rxpci+txpci", stats(agg.get("pcie_total", [])), "GB/s", scale=1000.0, digits=3))
-    print(stat_line("All GPUs board power", stats(agg.get("pwr", [])), "W", scale=1.0, digits=1))
-    print(stat_line("Average SM utilization across GPUs", stats(agg.get("sm_avg_across_gpus", [])), "%", scale=1.0, digits=1))
+    print(stat_line("All GPUs rxpci", stats(agg.get("rxpci", []), min_value=0), "GB/s", scale=1000.0, digits=3))
+    print(stat_line("All GPUs txpci", stats(agg.get("txpci", []), min_value=0), "GB/s", scale=1000.0, digits=3))
+    print(stat_line("All GPUs rxpci+txpci", stats(agg.get("pcie_total", []), min_value=0), "GB/s", scale=1000.0, digits=3))
+    print(stat_line("All GPUs board power", stats(agg.get("pwr", []), min_value=0), "W", scale=1.0, digits=1))
+    print(stat_line("Average SM utilization across GPUs", stats(agg.get("sm_avg_across_gpus", []), min_value=0), "%", scale=1.0, digits=1))
     print()
     print("Per-GPU peak PCIe and utilization:")
     print()

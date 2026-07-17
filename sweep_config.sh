@@ -6,6 +6,13 @@ export CUDA_VISIBLE_DEVICES=0
 export NUMA_NODE=0
 export CPU_BIND=1
 
+HOST_INIT_CPU="${HOST_INIT_CPU:-1}"
+
+LABEL_SUFFIX="${LABEL_SUFFIX:-}"
+if [[ "${HOST_INIT_CPU}" == "1" ]]; then
+    LABEL_SUFFIX="${LABEL_SUFFIX}_cpuinit"
+fi
+
 failed=0
 
 run_step() {
@@ -24,18 +31,19 @@ run_step() {
 }
 
 run_step "enable RO" bash enable_RO.sh
+# default cache way 2way-0xc000
 run_step "set msr c000" wrmsr 0xc8b 0xc000
-run_step "intel sweep ro_on_c000" env RUN_LABEL=ro_on_c000 ONLY_TESTCASE="${ONLY_TESTCASE:-}" bash ./sweep_intel_all.sh
+run_step "intel sweep ro_on_c000${LABEL_SUFFIX}" env RUN_LABEL="ro_on_c000${LABEL_SUFFIX}" ONLY_TESTCASE="${ONLY_TESTCASE:-}" HOST_INIT_CPU="${HOST_INIT_CPU}" bash ./sweep_intel_all.sh
 
 run_step "set msr ff00" wrmsr 0xc8b 0xff00
-run_step "intel sweep ro_on_ff00" env RUN_LABEL=ro_on_ff00 ONLY_TESTCASE="${ONLY_TESTCASE:-}" bash ./sweep_intel_all.sh
+run_step "intel sweep ro_on_ff00${LABEL_SUFFIX}" env RUN_LABEL="ro_on_ff00${LABEL_SUFFIX}" ONLY_TESTCASE="${ONLY_TESTCASE:-}" HOST_INIT_CPU="${HOST_INIT_CPU}" bash ./sweep_intel_all.sh
 
-run_step "disable RO" bash disable_RO.sh
-run_step "set msr c000 again" wrmsr 0xc8b 0xc000
-run_step "intel sweep ro_off_c000" env RUN_LABEL=ro_off_c000 ONLY_TESTCASE="${ONLY_TESTCASE:-}" bash ./sweep_intel_all.sh
+# run_step "disable RO" bash disable_RO.sh
+# run_step "set msr c000 again" wrmsr 0xc8b 0xc000
+# run_step "intel sweep ro_off_c000${LABEL_SUFFIX}" env RUN_LABEL="ro_off_c000${LABEL_SUFFIX}" ONLY_TESTCASE="${ONLY_TESTCASE:-}" HOST_INIT_CPU="${HOST_INIT_CPU}" bash ./sweep_intel_all.sh
 
-run_step "set msr ff00 again" wrmsr 0xc8b 0xff00
-run_step "intel sweep ro_off_ff00" env RUN_LABEL=ro_off_ff00 ONLY_TESTCASE="${ONLY_TESTCASE:-}" bash ./sweep_intel_all.sh
+# run_step "set msr ff00 again" wrmsr 0xc8b 0xff00
+# run_step "intel sweep ro_off_ff00${LABEL_SUFFIX}" env RUN_LABEL="ro_off_ff00${LABEL_SUFFIX}" ONLY_TESTCASE="${ONLY_TESTCASE:-}" HOST_INIT_CPU="${HOST_INIT_CPU}" bash ./sweep_intel_all.sh
 
 echo
 if [[ $failed -ne 0 ]]; then

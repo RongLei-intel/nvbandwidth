@@ -88,6 +88,9 @@ run_case() {
         fi
 
         extra_args="${tune_flag} ${tune_value}"
+        if [[ "${HOST_INIT_CPU:-}" == "1" ]]; then
+            extra_args="$extra_args --hostInitCpu"
+        fi
         env \
             NVBANDWIDTH_TIMEOUT_SECONDS="$max_seconds" \
             TESTCASE="$testcase" \

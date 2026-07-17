@@ -1,6 +1,6 @@
 {
   "global": {
-    "maxSeconds": 60,
+    "maxSeconds": 120,
     "minPcmMemorySamples": 10,
     "minPcmPcieSamples": 10,
     "minRunTimeSeconds": 5,
@@ -36,7 +36,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 1,
-      "loopCount": 200000
+      "loopCount": 270695
     },
     {
       "name": "t17_mib_b2MiB",
@@ -44,7 +44,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 2,
-      "loopCount": 100000
+      "loopCount": 135348
     },
     {
       "name": "t17_mib_b4MiB",
@@ -52,7 +52,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 4,
-      "loopCount": 50000
+      "loopCount": 67674
     },
     {
       "name": "t17_mib_b8MiB",
@@ -60,7 +60,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 8,
-      "loopCount": 25000
+      "loopCount": 33837
     },
     {
       "name": "t17_mib_b16MiB",
@@ -68,7 +68,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 16,
-      "loopCount": 12500
+      "loopCount": 16919
     },
     {
       "name": "t17_mib_b32MiB",
@@ -76,7 +76,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 32,
-      "loopCount": 6250
+      "loopCount": 8460
     },
     {
       "name": "t17_mib_b64MiB",
@@ -84,7 +84,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 64,
-      "loopCount": 3125
+      "loopCount": 4230
     },
     {
       "name": "t17_mib_b128MiB",
@@ -92,7 +92,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 128,
-      "loopCount": 1562
+      "loopCount": 2115
     },
     {
       "name": "t17_mib_b256MiB",
@@ -100,7 +100,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 256,
-      "loopCount": 781
+      "loopCount": 1058
     },
     {
       "name": "t17_mib_b512MiB",
@@ -108,7 +108,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 512,
-      "loopCount": 391
+      "loopCount": 529
     },
     {
       "name": "t17_mib_b1024MiB",
@@ -116,7 +116,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 1024,
-      "loopCount": 195
+      "loopCount": 265
     },
     {
       "name": "t17_mib_b2048MiB",
@@ -124,7 +124,7 @@
       "testcase": 17,
       "bufferUnit": "MiB",
       "buffer": 2048,
-      "loopCount": 98
+      "loopCount": 133
     }
   ]
 }
